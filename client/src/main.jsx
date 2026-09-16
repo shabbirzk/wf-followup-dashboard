@@ -1,26 +1,21 @@
-```jsx
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import axios from 'axios';
 import './style.css';
 
 const api = axios.create({
-  baseURL:
-    import.meta.env.VITE_API_URL ||
-    'https://wf-followup-dashboard1.onrender.com/api'
+  baseURL: 'https://wf-followup-dashboard1.onrender.com/api'
 });
 
-/*
-========================================================
-UAE / DUBAI TIME HELPERS
-========================================================
-*/
+/* ========================================================
+   UAE / DUBAI TIME HELPERS
+   ======================================================== */
 
-// Format a stored date/time for display in UAE time
-const fmt = (d) => {
-  if (!d) return '—';
+// Display stored UTC date/time as UAE/Dubai time
+const fmt = (value) => {
+  if (!value) return '—';
 
-  const date = new Date(d);
+  const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) return '—';
 
@@ -35,12 +30,13 @@ const fmt = (d) => {
   });
 };
 
-// Convert a datetime-local value to a UTC ISO date
-// while treating the selected value as UAE/Dubai time.
+// Convert datetime-local value to UTC ISO.
+// datetime-local is treated as Dubai/UAE local time.
 //
 // Example:
 // 2026-09-16T12:20
-// becomes the UTC equivalent of 12:20 PM Dubai time.
+// becomes:
+// 2026-09-16T08:20:00.000Z
 const dubaiLocalToISO = (value) => {
   if (!value) return '';
 
@@ -48,15 +44,9 @@ const dubaiLocalToISO = (value) => {
 
   if (!datePart || !timePart) return value;
 
-  const [year, month, day] = datePart
-    .split('-')
-    .map(Number);
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute] = timePart.split(':').map(Number);
 
-  const [hour, minute] = timePart
-    .split(':')
-    .map(Number);
-
-  // UAE is UTC+4 and does not use daylight saving time.
   const utcDate = new Date(
     Date.UTC(
       year,
@@ -72,30 +62,7 @@ const dubaiLocalToISO = (value) => {
   return utcDate.toISOString();
 };
 
-// Get current UAE date/time in YYYY-MM-DDTHH:mm format
-// for the datetime-local input.
-const getDubaiDateTimeLocal = () => {
-  const now = new Date();
-
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Dubai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).formatToParts(now);
-
-  const get = (type) =>
-    parts.find((p) => p.type === type)?.value || '';
-
-  return `${get('year')}-${get('month')}-${get('day')}T${get(
-    'hour'
-  )}:${get('minute')}`;
-};
-
-// Get today's date in UAE as YYYY-MM-DD
+// Return current Dubai date as YYYY-MM-DD
 const getDubaiToday = () => {
   const now = new Date();
 
@@ -112,11 +79,11 @@ const getDubaiToday = () => {
   return `${get('year')}-${get('month')}-${get('day')}`;
 };
 
-// Convert stored date to YYYY-MM-DD in UAE time
-const getDubaiDate = (d) => {
-  if (!d) return '';
+// Convert stored UTC date to Dubai YYYY-MM-DD
+const getDubaiDate = (value) => {
+  if (!value) return '';
 
-  const date = new Date(d);
+  const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) return '';
 
@@ -133,27 +100,37 @@ const getDubaiDate = (d) => {
   return `${get('year')}-${get('month')}-${get('day')}`;
 };
 
-// Check whether a stored follow-up date is overdue
-// based on the actual current UAE time.
-const isOverdue = (d) => {
-  if (!d) return false;
+// Check actual current time for overdue status
+const isOverdue = (value) => {
+  if (!value) return false;
 
-  const date = new Date(d);
+  const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) return false;
 
   return date.getTime() < Date.now();
 };
 
+/* ========================================================
+   APP
+   ======================================================== */
+
 function App() {
   const [tab, setTab] = useState('Dashboard');
+
   const [summary, setSummary] = useState({});
   const [customers, setCustomers] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [salespersonMaster, setSalespersonMaster] = useState([]);
+
   const [selectedSalesperson, setSelectedSalesperson] =
     useState('All');
+
   const [error, setError] = useState('');
+
+  /* ======================================================
+     SALESPERSON MASTER FORM
+     ====================================================== */
 
   const [salespersonForm, setSalespersonForm] = useState({
     name: '',
@@ -168,16 +145,25 @@ function App() {
   const [editingSalesperson, setEditingSalesperson] =
     useState(null);
 
+  /* ======================================================
+     CUSTOMER FORM
+     ====================================================== */
+
   const [form, setForm] = useState({
     name: '',
     phone: '',
     whatsapp: '',
     email: '',
     location: '',
-    assignedSalesperson: '',
     productInterest: '',
-    quotationAmount: 0
+    quotationAmount: '',
+    assignedSalesperson: '',
+    status: 'New'
   });
+
+  /* ======================================================
+     FOLLOW-UP FORM
+     ====================================================== */
 
   const [task, setTask] = useState({
     customer: '',
@@ -189,21 +175,32 @@ function App() {
     nextAction: ''
   });
 
+  /* ======================================================
+     LOAD DATA
+     ====================================================== */
+
   const load = async () => {
     try {
       setError('');
 
-      const [a, b, c, d] = await Promise.all([
+      const [
+        summaryResponse,
+        customersResponse,
+        followupsResponse,
+        salespersonsResponse
+      ] = await Promise.all([
         api.get('/summary'),
         api.get('/customers'),
         api.get('/followups'),
         api.get('/salespersons')
       ]);
 
-      setSummary(a.data);
-      setCustomers(b.data);
-      setTasks(c.data);
-      setSalespersonMaster(d.data);
+      setSummary(summaryResponse.data || {});
+      setCustomers(customersResponse.data || []);
+      setTasks(followupsResponse.data || []);
+      setSalespersonMaster(
+        salespersonsResponse.data || []
+      );
     } catch (err) {
       console.error(err);
 
@@ -218,14 +215,18 @@ function App() {
     load();
   }, []);
 
-  const activeSalespersons = salespersonMaster.filter(
-    (sp) => sp.status === 'Active'
-  );
+  /* ======================================================
+     ACTIVE SALESPERSONS
+     ====================================================== */
 
-  const salespersons = [
-    'All',
-    ...activeSalespersons.map((sp) => sp.name)
-  ];
+  const activeSalespersons =
+    salespersonMaster.filter(
+      (sp) => sp.status === 'Active'
+    );
+
+  /* ======================================================
+     FILTERED CUSTOMERS
+     ====================================================== */
 
   const filteredCustomers =
     selectedSalesperson === 'All'
@@ -236,6 +237,10 @@ function App() {
             selectedSalesperson
         );
 
+  /* ======================================================
+     FILTERED FOLLOW-UPS
+     ====================================================== */
+
   const filteredTasks =
     selectedSalesperson === 'All'
       ? tasks
@@ -245,6 +250,10 @@ function App() {
             t.customer?.assignedSalesperson ===
               selectedSalesperson
         );
+
+  /* ======================================================
+     DASHBOARD SUMMARY
+     ====================================================== */
 
   const filteredPendingTasks =
     filteredTasks.filter(
@@ -260,7 +269,8 @@ function App() {
 
     today: filteredPendingTasks.filter(
       (t) =>
-        getDubaiDate(t.dueAt) === todayDubai
+        getDubaiDate(t.dueAt) ===
+        todayDubai
     ).length,
 
     overdue: filteredPendingTasks.filter(
@@ -275,18 +285,18 @@ function App() {
       (c) => c.status === 'Converted'
     ).length,
 
-    quotationAmount: filteredCustomers.reduce(
-      (total, c) =>
-        total + Number(c.quotationAmount || 0),
-      0
-    )
+    quotationAmount:
+      filteredCustomers.reduce(
+        (total, c) =>
+          total +
+          Number(c.quotationAmount || 0),
+        0
+      )
   };
 
-  /*
-  ========================================================
-  CUSTOMER
-  ========================================================
-  */
+  /* ======================================================
+     CUSTOMER
+     ====================================================== */
 
   const addCustomer = async (e) => {
     e.preventDefault();
@@ -294,9 +304,8 @@ function App() {
     try {
       await api.post('/customers', {
         ...form,
-        quotationAmount: Number(
-          form.quotationAmount || 0
-        )
+        quotationAmount:
+          Number(form.quotationAmount || 0)
       });
 
       setForm({
@@ -305,25 +314,26 @@ function App() {
         whatsapp: '',
         email: '',
         location: '',
-        assignedSalesperson: '',
         productInterest: '',
-        quotationAmount: 0
+        quotationAmount: '',
+        assignedSalesperson: '',
+        status: 'New'
       });
 
       await load();
     } catch (err) {
+      console.error(err);
+
       alert(
         err.response?.data?.message ||
-          'Unable to add customer.'
+          'Unable to save customer.'
       );
     }
   };
 
-  /*
-  ========================================================
-  FOLLOW-UP
-  ========================================================
-  */
+  /* ======================================================
+     FOLLOW-UP
+     ====================================================== */
 
   const addTask = async (e) => {
     e.preventDefault();
@@ -331,14 +341,13 @@ function App() {
     try {
       const dataToSave = {
         ...task,
-
-        // IMPORTANT:
-        // Convert selected UAE local time to UTC
-        // before sending it to MongoDB.
         dueAt: dubaiLocalToISO(task.dueAt)
       };
 
-      await api.post('/followups', dataToSave);
+      await api.post(
+        '/followups',
+        dataToSave
+      );
 
       setTask({
         customer: '',
@@ -361,11 +370,9 @@ function App() {
     }
   };
 
-  /*
-  ========================================================
-  SALESPERSON MASTER
-  ========================================================
-  */
+  /* ======================================================
+     SALESPERSON MASTER
+     ====================================================== */
 
   const saveSalesperson = async (e) => {
     e.preventDefault();
@@ -373,8 +380,7 @@ function App() {
     try {
       if (editingSalesperson) {
         await api.patch(
-          '/salespersons/' +
-            editingSalesperson._id,
+          `/salespersons/${editingSalesperson._id}`,
           salespersonForm
         );
       } else {
@@ -415,15 +421,13 @@ function App() {
       phone: sp.phone || '',
       whatsapp: sp.whatsapp || '',
       email: sp.email || '',
-      department: sp.department || 'Sales',
+      department:
+        sp.department || 'Sales',
       location: sp.location || '',
       status: sp.status || 'Active'
     });
 
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    });
+    setTab('Salesperson Master');
   };
 
   const cancelSalespersonEdit = () => {
@@ -440,8 +444,17 @@ function App() {
     });
   };
 
+  /* ======================================================
+     RENDER
+     ====================================================== */
+
   return (
     <div className="app">
+
+      {/* ==================================================
+          SIDEBAR
+          ================================================== */}
+
       <aside>
         <h2>Western Furniture</h2>
 
@@ -454,86 +467,92 @@ function App() {
           'Salesperson Master',
           'Customers',
           'Follow-ups'
-        ].map((x) => (
+        ].map((item) => (
           <button
-            key={x}
+            key={item}
             className={
-              tab === x
+              tab === item
                 ? 'nav active'
                 : 'nav'
             }
-            onClick={() => setTab(x)}
+            onClick={() => setTab(item)}
           >
-            {x}
+            {item}
           </button>
         ))}
       </aside>
 
+      {/* ==================================================
+          MAIN CONTENT
+          ================================================== */}
+
       <main>
+
         <header>
           <div>
             <h1>{tab}</h1>
-
             <p className="muted">
-              Customer follow-up reminder dashboard
+              Western Furniture Customer CRM
             </p>
           </div>
-
-          <button onClick={load}>
-            Refresh
-          </button>
         </header>
 
         {error && (
-          <section className="panel">
-            <strong>{error}</strong>
-          </section>
+          <div className="error">
+            {error}
+          </div>
         )}
 
-        {/*
-        ====================================================
-        DASHBOARD
-        ====================================================
-        */}
+        {/* ==================================================
+            DASHBOARD
+            ================================================== */}
 
         {tab === 'Dashboard' && (
           <>
             <section className="panel">
+
               <h2>
                 Salesperson Filter
               </h2>
 
               <select
-                value={
-                  selectedSalesperson
-                }
+                value={selectedSalesperson}
                 onChange={(e) =>
                   setSelectedSalesperson(
                     e.target.value
                   )
                 }
               >
-                {salespersons.map(
-                  (salesperson) => (
+                <option value="All">
+                  All Salespersons
+                </option>
+
+                {activeSalespersons.map(
+                  (sp) => (
                     <option
-                      key={salesperson}
-                      value={salesperson}
+                      key={sp._id}
+                      value={sp.name}
                     >
-                      {salesperson}
+                      {sp.salespersonCode} —{' '}
+                      {sp.name}
                     </option>
                   )
                 )}
               </select>
+
             </section>
 
+            {/* KPI CARDS */}
+
             <section className="cards">
+
               {[
                 [
                   'Customers',
                   filteredSummary.customers
                 ],
                 [
-                  'Pending',
+                  'Pending Follow-ups',
                   filteredSummary.pending
                 ],
                 [
@@ -554,7 +573,10 @@ function App() {
                 ],
                 [
                   'Quotation Value',
-                  `AED ${filteredSummary.quotationAmount.toLocaleString()}`
+                  `AED ${Number(
+                    filteredSummary.quotationAmount ||
+                      0
+                  ).toLocaleString()}`
                 ]
               ].map(
                 ([label, value]) => (
@@ -562,9 +584,7 @@ function App() {
                     className="card"
                     key={label}
                   >
-                    <span>
-                      {label}
-                    </span>
+                    <span>{label}</span>
 
                     <strong>
                       {value ?? 0}
@@ -572,9 +592,13 @@ function App() {
                   </div>
                 )
               )}
+
             </section>
 
+            {/* PRIORITY FOLLOW-UPS */}
+
             <section className="panel">
+
               <h2>
                 Priority follow-ups
                 {selectedSalesperson !==
@@ -583,52 +607,48 @@ function App() {
                   : ''}
               </h2>
 
-              <TaskTable
-                tasks={filteredTasks
-                  .filter(
-                    (t) =>
-                      t.status ===
-                      'Pending'
-                  )
-                  .slice(0, 8)}
-                load={load}
-              />
+              {filteredPendingTasks.length ===
+              0 ? (
+                <p className="muted">
+                  No pending follow-ups.
+                </p>
+              ) : (
+                <TaskTable
+                  tasks={filteredPendingTasks}
+                  load={load}
+                />
+              )}
+
             </section>
 
+            {/* SALESPERSON ACTIVITY */}
+
             <section className="panel">
+
               <h2>
-                Salesperson-wise details
+                Salesperson Activity
               </h2>
 
-              <p className="muted">
-                Assigned customers, pending
-                tasks, overdue tasks and
-                completed follow-ups.
-              </p>
-
               <SalespersonTable
-                customers={
-                  filteredCustomers
-                }
+                customers={filteredCustomers}
                 tasks={filteredTasks}
                 salespersonMaster={
                   salespersonMaster
                 }
               />
+
             </section>
           </>
         )}
 
-        {/*
-        ====================================================
-        SALESPERSON MASTER
-        ====================================================
-        */}
+        {/* ==================================================
+            SALESPERSON MASTER
+            ================================================== */}
 
-        {tab ===
-          'Salesperson Master' && (
+        {tab === 'Salesperson Master' && (
           <>
             <section className="panel">
+
               <h2>
                 {editingSalesperson
                   ? 'Edit Salesperson'
@@ -636,24 +656,22 @@ function App() {
               </h2>
 
               <form
-                onSubmit={
-                  saveSalesperson
-                }
+                onSubmit={saveSalesperson}
                 className="form"
               >
+
                 <input
                   required
-                  placeholder="Salesperson name"
+                  placeholder="Name"
                   value={
                     salespersonForm.name
                   }
                   onChange={(e) =>
-                    setSalespersonForm(
-                      {
-                        ...salespersonForm,
-                        name: e.target.value
-                      }
-                    )
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      name:
+                        e.target.value
+                    })
                   }
                 />
 
@@ -663,12 +681,11 @@ function App() {
                     salespersonForm.phone
                   }
                   onChange={(e) =>
-                    setSalespersonForm(
-                      {
-                        ...salespersonForm,
-                        phone: e.target.value
-                      }
-                    )
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      phone:
+                        e.target.value
+                    })
                   }
                 />
 
@@ -678,13 +695,11 @@ function App() {
                     salespersonForm.whatsapp
                   }
                   onChange={(e) =>
-                    setSalespersonForm(
-                      {
-                        ...salespersonForm,
-                        whatsapp:
-                          e.target.value
-                      }
-                    )
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      whatsapp:
+                        e.target.value
+                    })
                   }
                 />
 
@@ -695,13 +710,11 @@ function App() {
                     salespersonForm.email
                   }
                   onChange={(e) =>
-                    setSalespersonForm(
-                      {
-                        ...salespersonForm,
-                        email:
-                          e.target.value
-                      }
-                    )
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      email:
+                        e.target.value
+                    })
                   }
                 />
 
@@ -710,13 +723,11 @@ function App() {
                     salespersonForm.department
                   }
                   onChange={(e) =>
-                    setSalespersonForm(
-                      {
-                        ...salespersonForm,
-                        department:
-                          e.target.value
-                      }
-                    )
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      department:
+                        e.target.value
+                    })
                   }
                 >
                   <option value="Sales">
@@ -738,13 +749,11 @@ function App() {
                     salespersonForm.location
                   }
                   onChange={(e) =>
-                    setSalespersonForm(
-                      {
-                        ...salespersonForm,
-                        location:
-                          e.target.value
-                      }
-                    )
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      location:
+                        e.target.value
+                    })
                   }
                 />
 
@@ -753,13 +762,11 @@ function App() {
                     salespersonForm.status
                   }
                   onChange={(e) =>
-                    setSalespersonForm(
-                      {
-                        ...salespersonForm,
-                        status:
-                          e.target.value
-                      }
-                    )
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      status:
+                        e.target.value
+                    })
                   }
                 >
                   <option value="Active">
@@ -787,10 +794,13 @@ function App() {
                     Cancel
                   </button>
                 )}
+
               </form>
+
             </section>
 
             <section className="panel">
+
               <h2>
                 Salesperson Master
               </h2>
@@ -802,9 +812,7 @@ function App() {
 
               <p>
                 <strong>
-                  {
-                    salespersonMaster.length
-                  }
+                  {salespersonMaster.length}
                 </strong>{' '}
                 Salespersons
               </p>
@@ -828,16 +836,13 @@ function App() {
                   {salespersonMaster.map(
                     (sp) => (
                       <tr key={sp._id}>
+
                         <td>
-                          {
-                            sp.salespersonCode
-                          }
+                          {sp.salespersonCode}
                         </td>
 
                         <td>
-                          <strong>
-                            {sp.name}
-                          </strong>
+                          {sp.name}
                         </td>
 
                         <td>
@@ -845,8 +850,7 @@ function App() {
                         </td>
 
                         <td>
-                          {sp.whatsapp ||
-                            '—'}
+                          {sp.whatsapp || '—'}
                         </td>
 
                         <td>
@@ -854,32 +858,20 @@ function App() {
                         </td>
 
                         <td>
-                          {sp.department ||
-                            '—'}
+                          {sp.department || '—'}
                         </td>
 
                         <td>
-                          {sp.location ||
-                            '—'}
+                          {sp.location || '—'}
                         </td>
 
                         <td>
-                          <span
-                            className={
-                              'status ' +
-                              (
-                                sp.status ||
-                                'Active'
-                              ).toLowerCase()
-                            }
-                          >
-                            {sp.status ||
-                              'Active'}
-                          </span>
+                          {sp.status}
                         </td>
 
                         <td>
                           <button
+                            type="button"
                             onClick={() =>
                               editSalesperson(
                                 sp
@@ -889,6 +881,7 @@ function App() {
                             Edit
                           </button>
                         </td>
+
                       </tr>
                     )
                   )}
@@ -913,37 +906,35 @@ function App() {
                   )}
                 </tbody>
               </table>
+
             </section>
           </>
         )}
 
-        {/*
-        ====================================================
-        CUSTOMERS
-        ====================================================
-        */}
+        {/* ==================================================
+            CUSTOMERS
+            ================================================== */}
 
         {tab === 'Customers' && (
           <>
             <section className="panel">
-              <h2>
-                Add customer
-              </h2>
+
+              <h2>Add customer</h2>
 
               <form
-                onSubmit={
-                  addCustomer
-                }
+                onSubmit={addCustomer}
                 className="form"
               >
+
                 <input
                   required
-                  placeholder="Customer name"
+                  placeholder="Customer Name"
                   value={form.name}
                   onChange={(e) =>
                     setForm({
                       ...form,
-                      name: e.target.value
+                      name:
+                        e.target.value
                     })
                   }
                 />
@@ -962,9 +953,7 @@ function App() {
 
                 <input
                   placeholder="WhatsApp"
-                  value={
-                    form.whatsapp
-                  }
+                  value={form.whatsapp}
                   onChange={(e) =>
                     setForm({
                       ...form,
@@ -989,13 +978,42 @@ function App() {
 
                 <input
                   placeholder="Location"
-                  value={
-                    form.location
-                  }
+                  value={form.location}
                   onChange={(e) =>
                     setForm({
                       ...form,
                       location:
+                        e.target.value
+                    })
+                  }
+                />
+
+                <input
+                  placeholder="Product Interest"
+                  value={
+                    form.productInterest
+                  }
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      productInterest:
+                        e.target.value
+                    })
+                  }
+                />
+
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Quotation Amount"
+                  value={
+                    form.quotationAmount
+                  }
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      quotationAmount:
                         e.target.value
                     })
                   }
@@ -1023,78 +1041,82 @@ function App() {
                         key={sp._id}
                         value={sp.name}
                       >
-                        {
-                          sp.salespersonCode
-                        }{' '}
-                        — {sp.name}
+                        {sp.salespersonCode} —{' '}
+                        {sp.name}
                       </option>
                     )
                   )}
                 </select>
 
-                <input
-                  placeholder="Product interest"
-                  value={
-                    form.productInterest
-                  }
+                <select
+                  value={form.status}
                   onChange={(e) =>
                     setForm({
                       ...form,
-                      productInterest:
+                      status:
                         e.target.value
                     })
                   }
-                />
+                >
+                  <option value="New">
+                    New
+                  </option>
 
-                <input
-                  type="number"
-                  placeholder="Quotation amount"
-                  value={
-                    form.quotationAmount
-                  }
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      quotationAmount:
-                        e.target.value
-                    })
-                  }
-                />
+                  <option value="Contacted">
+                    Contacted
+                  </option>
+
+                  <option value="Quoted">
+                    Quoted
+                  </option>
+
+                  <option value="Negotiation">
+                    Negotiation
+                  </option>
+
+                  <option value="Converted">
+                    Converted
+                  </option>
+
+                  <option value="Lost">
+                    Lost
+                  </option>
+                </select>
 
                 <button type="submit">
-                  Add customer
+                  Add Customer
                 </button>
+
               </form>
+
             </section>
 
             <section className="panel">
-              <h2>
-                Customer master
-              </h2>
+
+              <h2>Customer master</h2>
 
               <table>
+
                 <thead>
                   <tr>
-                    <th>Code</th>
+                    <th>Customer Code</th>
                     <th>Name</th>
                     <th>Contact</th>
                     <th>Product</th>
                     <th>Salesperson</th>
-                    <th>
-                      Quotation Amount
-                    </th>
+                    <th>Quotation Amount</th>
                     <th>Status</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {customers.map(
+
+                  {filteredCustomers.map(
                     (c) => (
                       <tr key={c._id}>
+
                         <td>
-                          {
-                            c.customerCode
-                          }
+                          {c.customerCode}
                         </td>
 
                         <td>
@@ -1102,19 +1124,17 @@ function App() {
                         </td>
 
                         <td>
-                          {c.phone}
+                          {c.phone || '—'}
                         </td>
 
                         <td>
-                          {
-                            c.productInterest
-                          }
+                          {c.productInterest ||
+                            '—'}
                         </td>
 
                         <td>
-                          {
-                            c.assignedSalesperson
-                          }
+                          {c.assignedSalesperson ||
+                            '—'}
                         </td>
 
                         <td>
@@ -1128,24 +1148,42 @@ function App() {
                         <td>
                           {c.status}
                         </td>
+
                       </tr>
                     )
                   )}
+
+                  {filteredCustomers.length ===
+                    0 && (
+                    <tr>
+                      <td
+                        colSpan="7"
+                        style={{
+                          textAlign:
+                            'center'
+                        }}
+                      >
+                        No customers found.
+                      </td>
+                    </tr>
+                  )}
+
                 </tbody>
+
               </table>
+
             </section>
           </>
         )}
 
-        {/*
-        ====================================================
-        FOLLOW-UPS
-        ====================================================
-        */}
+        {/* ==================================================
+            FOLLOW-UPS
+            ================================================== */}
 
         {tab === 'Follow-ups' && (
           <>
             <section className="panel">
+
               <h2>
                 Schedule follow-up
               </h2>
@@ -1154,12 +1192,14 @@ function App() {
                 onSubmit={addTask}
                 className="form"
               >
+
+                {/* CUSTOMER */}
+
                 <select
                   required
-                  value={
-                    task.customer
-                  }
+                  value={task.customer}
                   onChange={(e) => {
+
                     const customer =
                       customers.find(
                         (c) =>
@@ -1188,18 +1228,17 @@ function App() {
                         value={c._id}
                       >
                         {c.name} —{' '}
-                        {
-                          c.customerCode
-                        }
+                        {c.customerCode}
                       </option>
                     )
                   )}
+
                 </select>
 
+                {/* SALESPERSON */}
+
                 <select
-                  value={
-                    task.salesperson
-                  }
+                  value={task.salesperson}
                   onChange={(e) =>
                     setTask({
                       ...task,
@@ -1209,7 +1248,7 @@ function App() {
                   }
                 >
                   <option value="">
-                    Select Salesperson
+                    Select salesperson
                   </option>
 
                   {activeSalespersons.map(
@@ -1218,21 +1257,24 @@ function App() {
                         key={sp._id}
                         value={sp.name}
                       >
-                        {
-                          sp.salespersonCode
-                        }{' '}
-                        — {sp.name}
+                        {sp.salespersonCode} —{' '}
+                        {sp.name}
                       </option>
                     )
                   )}
+
                 </select>
+
+                {/* DUE DATE/TIME */}
+
+                <label>
+                  Follow-up Date & Time
+                </label>
 
                 <input
                   required
                   type="datetime-local"
-                  value={
-                    task.dueAt
-                  }
+                  value={task.dueAt}
                   onChange={(e) =>
                     setTask({
                       ...task,
@@ -1252,26 +1294,29 @@ function App() {
                     })
                   }
                 >
-                  {[
-                    'Call',
-                    'WhatsApp',
-                    'Email',
-                    'Visit',
-                    'Quotation'
-                  ].map((x) => (
-                    <option
-                      key={x}
-                      value={x}
-                    >
-                      {x}
-                    </option>
-                  ))}
+                  <option value="Call">
+                    Call
+                  </option>
+
+                  <option value="WhatsApp">
+                    WhatsApp
+                  </option>
+
+                  <option value="Email">
+                    Email
+                  </option>
+
+                  <option value="Visit">
+                    Visit
+                  </option>
+
+                  <option value="Meeting">
+                    Meeting
+                  </option>
                 </select>
 
                 <select
-                  value={
-                    task.priority
-                  }
+                  value={task.priority}
                   onChange={(e) =>
                     setTask({
                       ...task,
@@ -1280,25 +1325,26 @@ function App() {
                     })
                   }
                 >
-                  {[
-                    'Low',
-                    'Medium',
-                    'High'
-                  ].map((x) => (
-                    <option
-                      key={x}
-                      value={x}
-                    >
-                      {x}
-                    </option>
-                  ))}
+                  <option value="Low">
+                    Low
+                  </option>
+
+                  <option value="Medium">
+                    Medium
+                  </option>
+
+                  <option value="High">
+                    High
+                  </option>
+
+                  <option value="Urgent">
+                    Urgent
+                  </option>
                 </select>
 
                 <input
                   placeholder="Summary"
-                  value={
-                    task.summary
-                  }
+                  value={task.summary}
                   onChange={(e) =>
                     setTask({
                       ...task,
@@ -1310,9 +1356,7 @@ function App() {
 
                 <input
                   placeholder="Next action"
-                  value={
-                    task.nextAction
-                  }
+                  value={task.nextAction}
                   onChange={(e) =>
                     setTask({
                       ...task,
@@ -1323,58 +1367,85 @@ function App() {
                 />
 
                 <button type="submit">
-                  Schedule
+                  Schedule Follow-up
                 </button>
+
               </form>
+
             </section>
 
             <section className="panel">
+
               <h2>
-                Follow-up history and
-                tasks
+                Follow-up history and tasks
               </h2>
 
               <TaskTable
-                tasks={tasks}
+                tasks={filteredTasks}
                 load={load}
               />
+
             </section>
           </>
         )}
+
       </main>
     </div>
   );
 }
 
-/*
-========================================================
-TASK TABLE
-========================================================
-*/
+/* ========================================================
+   TASK TABLE
+   ======================================================== */
 
 function TaskTable({
   tasks,
   load
 }) {
+  const completeTask = async (id) => {
+    try {
+      await api.patch(
+        `/followups/${id}`,
+        {
+          status: 'Completed'
+        }
+      );
+
+      await load();
+    } catch (err) {
+      console.error(err);
+
+      alert(
+        err.response?.data?.message ||
+          'Unable to complete follow-up.'
+      );
+    }
+  };
+
   return (
     <table>
+
       <thead>
         <tr>
           <th>Customer</th>
-          <th>Due</th>
+          <th>Due Date / Time</th>
           <th>Type</th>
+          <th>Priority</th>
           <th>Salesperson</th>
+          <th>Summary</th>
+          <th>Next Action</th>
           <th>Status</th>
           <th>Action</th>
         </tr>
       </thead>
 
       <tbody>
+
         {tasks.map((t) => (
           <tr key={t._id}>
+
             <td>
-              {t.customer?.name ||
-                '—'}
+              {t.customer?.name || '—'}
             </td>
 
             <td>
@@ -1382,7 +1453,11 @@ function TaskTable({
             </td>
 
             <td>
-              {t.type}
+              {t.type || '—'}
+            </td>
+
+            <td>
+              {t.priority || '—'}
             </td>
 
             <td>
@@ -1393,10 +1468,21 @@ function TaskTable({
             </td>
 
             <td>
+              {t.summary || '—'}
+            </td>
+
+            <td>
+              {t.nextAction || '—'}
+            </td>
+
+            <td>
               <span
                 className={
-                  'status ' +
-                  t.status.toLowerCase()
+                  t.status === 'Completed'
+                    ? 'status completed'
+                    : isOverdue(t.dueAt)
+                    ? 'status overdue'
+                    : 'status pending'
                 }
               >
                 {t.status}
@@ -1404,57 +1490,53 @@ function TaskTable({
             </td>
 
             <td>
-              {t.status ===
-                'Pending' && (
-                <button
-                  onClick={async () => {
-                    try {
-                      await api.patch(
-                        '/followups/' +
-                          t._id,
-                        {
-                          status:
-                            'Completed'
-                        }
-                      );
 
-                      await load();
-                    } catch (err) {
-                      alert(
-                        err.response
-                          ?.data
-                          ?.message ||
-                          'Unable to complete follow-up.'
-                      );
-                    }
-                  }}
+              {t.status === 'Pending' && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    completeTask(t._id)
+                  }
                 >
                   Complete
                 </button>
               )}
+
             </td>
+
           </tr>
         ))}
+
+        {tasks.length === 0 && (
+          <tr>
+            <td
+              colSpan="9"
+              style={{
+                textAlign: 'center'
+              }}
+            >
+              No follow-ups found.
+            </td>
+          </tr>
+        )}
+
       </tbody>
+
     </table>
   );
 }
 
-/*
-========================================================
-SALESPERSON TABLE
-========================================================
-*/
+/* ========================================================
+   SALESPERSON TABLE
+   ======================================================== */
 
 function SalespersonTable({
   customers,
   tasks,
   salespersonMaster
 }) {
-  const masterNames =
-    salespersonMaster.map(
-      (sp) => sp.name
-    );
+  const todayDubai =
+    getDubaiToday();
 
   const activityNames = [
     ...customers.map(
@@ -1462,22 +1544,30 @@ function SalespersonTable({
         c.assignedSalesperson
     ),
     ...tasks.map(
-      (t) => t.salesperson
+      (t) =>
+        t.salesperson
     )
-  ].filter(Boolean);
-
-  const names = [
-    ...new Set([
-      ...masterNames,
-      ...activityNames
-    ])
   ];
 
-  const todayDubai =
-    getDubaiToday();
+  const names = [
+    ...new Set(
+      [
+        ...salespersonMaster
+          .filter(
+            (sp) =>
+              sp.status === 'Active'
+          )
+          .map(
+            (sp) => sp.name
+          ),
+        ...activityNames
+      ].filter(Boolean)
+    )
+  ];
 
   return (
     <table>
+
       <thead>
         <tr>
           <th>Salesperson</th>
@@ -1486,12 +1576,14 @@ function SalespersonTable({
           <th>Due Today</th>
           <th>Overdue</th>
           <th>Completed</th>
-          <th>Conversion</th>
+          <th>Converted</th>
         </tr>
       </thead>
 
       <tbody>
+
         {names.map((name) => {
+
           const cs =
             customers.filter(
               (c) =>
@@ -1548,6 +1640,7 @@ function SalespersonTable({
 
           return (
             <tr key={name}>
+
               <td>
                 <strong>
                   {name}
@@ -1577,24 +1670,39 @@ function SalespersonTable({
               </td>
 
               <td>
-                {cs.length
-                  ? Math.round(
-                      (converted /
-                        cs.length) *
-                        100
-                    )
-                  : 0}
-                %
+                {converted}
               </td>
+
             </tr>
           );
         })}
+
+        {names.length === 0 && (
+          <tr>
+            <td
+              colSpan="7"
+              style={{
+                textAlign: 'center'
+              }}
+            >
+              No salesperson activity
+              found.
+            </td>
+          </tr>
+        )}
+
       </tbody>
+
     </table>
   );
 }
 
+/* ========================================================
+   START REACT
+   ======================================================== */
+
 createRoot(
   document.getElementById('root')
-).render(<App />);
-```
+).render(
+  <App />
+);
