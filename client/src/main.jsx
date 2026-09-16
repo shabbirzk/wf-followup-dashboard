@@ -416,6 +416,15 @@ function App() {
           customer.status ===
           "Converted"
       );
+/* CONVERSION*/
+const conversionPercentage =
+  filteredDashboardCustomers.length === 0
+    ? 0
+    : (
+        (convertedCustomers.length /
+          filteredDashboardCustomers.length) *
+        100
+      ).toFixed(1);
 
     /* QUOTATION */
 
@@ -448,6 +457,8 @@ function App() {
 
       converted:
         convertedCustomers.length,
+
+      conversionPercentage,
 
       quotationAmount:
         quotationValue
@@ -1348,6 +1359,11 @@ function App() {
                 value={
                   dashboardStats.converted
                 }
+              />
+
+              <StatCard
+                title="Conversion Rate"
+                value={`${dashboardStats.conversionPercentage}%`}
               />
 
               <StatCard
