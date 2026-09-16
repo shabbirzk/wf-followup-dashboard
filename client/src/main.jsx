@@ -1,1708 +1,2445 @@
-import React, { useEffect, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import axios from 'axios';
-import './style.css';
+import React, { useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import axios from "axios";
+import "./style.css";
 
-const api = axios.create({
-  baseURL: 'https://wf-followup-dashboard1.onrender.com/api'
-});
+const API =
+  import.meta.env.VITE_API_URL ||
+  "https://wf-followup-dashboard1.onrender.com/api";
 
-/* ========================================================
-   UAE / DUBAI TIME HELPERS
-   ======================================================== */
+/* =========================================================
+   DUBAI TIMEZONE HELPERS
+========================================================= */
 
-// Display stored UTC date/time as UAE/Dubai time
+const DUBAI_TIMEZONE = "Asia/Dubai";
+
 const fmt = (value) => {
-  if (!value) return '—';
+  if (!value) return "";
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return '—';
-
-  return date.toLocaleString('en-AE', {
-    timeZone: 'Asia/Dubai',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+  return new Date(value).toLocaleString("en-GB", {
+    timeZone: DUBAI_TIMEZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: true
   });
 };
 
-// Convert datetime-local value to UTC ISO.
-// datetime-local is treated as Dubai/UAE local time.
-//
-// Example:
-// 2026-09-16T12:20
-// becomes:
-// 2026-09-16T08:20:00.000Z
-const dubaiLocalToISO = (value) => {
-  if (!value) return '';
+const getDubaiDate = (value = new Date()) => {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DUBAI_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(value));
+};
 
-  const [datePart, timePart] = value.split('T');
+const getDubaiToday = () => {
+  return getDubaiDate(new Date());
+};
 
-  if (!datePart || !timePart) return value;
+const dubaiLocalToISO = (localValue) => {
+  if (!localValue) return "";
 
-  const [year, month, day] = datePart.split('-').map(Number);
-  const [hour, minute] = timePart.split(':').map(Number);
+  const [datePart, timePart] = localValue.split("T");
 
-  const utcDate = new Date(
-    Date.UTC(
-      year,
-      month - 1,
-      day,
-      hour - 4,
-      minute,
-      0,
-      0
-    )
+  if (!datePart || !timePart) return "";
+
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
+
+  // Dubai is UTC+4
+  const utcMillis = Date.UTC(
+    year,
+    month - 1,
+    day,
+    hour - 4,
+    minute
   );
 
-  return utcDate.toISOString();
+  return new Date(utcMillis).toISOString();
 };
 
-// Return current Dubai date as YYYY-MM-DD
-const getDubaiToday = () => {
-  const now = new Date();
-
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Dubai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(now);
-
-  const get = (type) =>
-    parts.find((p) => p.type === type)?.value || '';
-
-  return `${get('year')}-${get('month')}-${get('day')}`;
-};
-
-// Convert stored UTC date to Dubai YYYY-MM-DD
-const getDubaiDate = (value) => {
-  if (!value) return '';
+const isoToDubaiLocal = (value) => {
+  if (!value) return "";
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) return '';
+  if (Number.isNaN(date.getTime())) return "";
 
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Dubai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: DUBAI_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
   }).formatToParts(date);
 
-  const get = (type) =>
-    parts.find((p) => p.type === type)?.value || '';
+  const getPart = (type) =>
+    parts.find((p) => p.type === type)?.value || "";
 
-  return `${get('year')}-${get('month')}-${get('day')}`;
+  return `${getPart("year")}-${getPart("month")}-${getPart(
+    "day"
+  )}T${getPart("hour")}:${getPart("minute")}`;
 };
 
-// Check actual current time for overdue status
 const isOverdue = (value) => {
   if (!value) return false;
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return false;
-
-  return date.getTime() < Date.now();
+  return new Date(value).getTime() < Date.now();
 };
 
-/* ========================================================
-   APP
-   ======================================================== */
+const normalizeName = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+/* =========================================================
+   SMALL UI COMPONENTS
+========================================================= */
+
+const Badge = ({ children, type = "" }) => (
+  <span className={`badge ${type}`}>{children}</span>
+);
+
+const StatCard = ({ title, value, subtitle }) => (
+  <div className="stat-card">
+    <div className="stat-title">{title}</div>
+    <div className="stat-value">{value}</div>
+    {subtitle && (
+      <div className="stat-subtitle">{subtitle}</div>
+    )}
+  </div>
+);
+
+/* =========================================================
+   MAIN APP
+========================================================= */
 
 function App() {
-  const [tab, setTab] = useState('Dashboard');
+  const [activeTab, setActiveTab] = useState("dashboard");
 
-  const [summary, setSummary] = useState({});
+  const [summary, setSummary] = useState({
+    customers: 0,
+    pending: 0,
+    today: 0,
+    overdue: 0,
+    completed: 0,
+    converted: 0,
+    quotationAmount: 0
+  });
+
   const [customers, setCustomers] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [salespersonMaster, setSalespersonMaster] = useState([]);
+  const [followUps, setFollowUps] = useState([]);
+  const [salespersons, setSalespersons] = useState([]);
 
-  const [selectedSalesperson, setSelectedSalesperson] =
-    useState('All');
+  const [loading, setLoading] = useState(true);
 
-  const [error, setError] = useState('');
+  /* =====================================================
+     CUSTOMER FORM
+  ===================================================== */
 
-  /* ======================================================
-     SALESPERSON MASTER FORM
-     ====================================================== */
+  const [customerForm, setCustomerForm] = useState({
+    name: "",
+    phone: "",
+    whatsapp: "",
+    email: "",
+    location: "",
+    source: "Walk-in",
+    assignedSalesperson: "",
+    status: "New",
+    productInterest: "",
+    quotationAmount: ""
+  });
+
+  const [savingCustomer, setSavingCustomer] =
+    useState(false);
+
+  /* =====================================================
+     SALESPERSON FORM
+  ===================================================== */
 
   const [salespersonForm, setSalespersonForm] = useState({
-    name: '',
-    phone: '',
-    whatsapp: '',
-    email: '',
-    department: 'Sales',
-    location: '',
-    status: 'Active'
+    name: "",
+    location: "",
+    status: "Active"
   });
 
-  const [editingSalesperson, setEditingSalesperson] =
+  const [savingSalesperson, setSavingSalesperson] =
+    useState(false);
+
+  /* =====================================================
+     FOLLOW-UP FORM
+  ===================================================== */
+
+  const [followUpForm, setFollowUpForm] = useState({
+    customer: "",
+    salesperson: "",
+    dueAt: "",
+    type: "Call",
+    priority: "Medium",
+    summary: "",
+    nextAction: ""
+  });
+
+  const [savingFollowUp, setSavingFollowUp] =
+    useState(false);
+
+  const [completingId, setCompletingId] =
     useState(null);
 
-  /* ======================================================
-     CUSTOMER FORM
-     ====================================================== */
+  /* =====================================================
+     FOLLOW-UP EDIT
+  ===================================================== */
 
-  const [form, setForm] = useState({
-    name: '',
-    phone: '',
-    whatsapp: '',
-    email: '',
-    location: '',
-    productInterest: '',
-    quotationAmount: '',
-    assignedSalesperson: '',
-    status: 'New'
-  });
+  const [editingFollowUp, setEditingFollowUp] =
+    useState(null);
 
-  /* ======================================================
-     FOLLOW-UP FORM
-     ====================================================== */
+  const [savingFollowUpEdit, setSavingFollowUpEdit] =
+    useState(false);
 
-  const [task, setTask] = useState({
-    customer: '',
-    salesperson: '',
-    dueAt: '',
-    type: 'Call',
-    priority: 'Medium',
-    summary: '',
-    nextAction: ''
-  });
+  /* =====================================================
+     FILTERS
+  ===================================================== */
 
-  /* ======================================================
+  const [customerSearch, setCustomerSearch] =
+    useState("");
+
+  const [followUpSearch, setFollowUpSearch] =
+    useState("");
+
+  const [followUpStatusFilter, setFollowUpStatusFilter] =
+    useState("All");
+
+  const [followUpSalespersonFilter, setFollowUpSalespersonFilter] =
+    useState("All");
+
+  /* =====================================================
      LOAD DATA
-     ====================================================== */
+  ===================================================== */
 
-  const load = async () => {
+  const loadData = async () => {
     try {
-      setError('');
+      setLoading(true);
 
       const [
         summaryResponse,
         customersResponse,
-        followupsResponse,
+        followUpsResponse,
         salespersonsResponse
       ] = await Promise.all([
-        api.get('/summary'),
-        api.get('/customers'),
-        api.get('/followups'),
-        api.get('/salespersons')
+        axios.get(`${API}/summary`),
+        axios.get(`${API}/customers`),
+        axios.get(`${API}/followups`),
+        axios.get(`${API}/salespersons`)
       ]);
 
-      setSummary(summaryResponse.data || {});
-      setCustomers(customersResponse.data || []);
-      setTasks(followupsResponse.data || []);
-      setSalespersonMaster(
-        salespersonsResponse.data || []
+      setSummary(
+        summaryResponse.data || {
+          customers: 0,
+          pending: 0,
+          today: 0,
+          overdue: 0,
+          completed: 0,
+          converted: 0,
+          quotationAmount: 0
+        }
       );
-    } catch (err) {
-      console.error(err);
 
-      setError(
-        err.response?.data?.message ||
-          'Unable to connect to the CRM server.'
+      setCustomers(customersResponse.data || []);
+      setFollowUps(followUpsResponse.data || []);
+      setSalespersons(salespersonsResponse.data || []);
+    } catch (error) {
+      console.error("Load data error:", error);
+
+      alert(
+        error.response?.data?.message ||
+          "Unable to load dashboard data."
       );
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    loadData();
   }, []);
 
-  /* ======================================================
-     ACTIVE SALESPERSONS
-     ====================================================== */
+  /* =====================================================
+     DASHBOARD CALCULATIONS
+     Uses Dubai local date
+  ===================================================== */
 
-  const activeSalespersons =
-    salespersonMaster.filter(
-      (sp) => sp.status === 'Active'
+  const dashboardStats = useMemo(() => {
+    const today = getDubaiToday();
+
+    const pendingFollowUps = followUps.filter(
+      (f) => f.status === "Pending"
     );
 
-  /* ======================================================
-     FILTERED CUSTOMERS
-     ====================================================== */
-
-  const filteredCustomers =
-    selectedSalesperson === 'All'
-      ? customers
-      : customers.filter(
-          (c) =>
-            c.assignedSalesperson ===
-            selectedSalesperson
-        );
-
-  /* ======================================================
-     FILTERED FOLLOW-UPS
-     ====================================================== */
-
-  const filteredTasks =
-    selectedSalesperson === 'All'
-      ? tasks
-      : tasks.filter(
-          (t) =>
-            t.salesperson === selectedSalesperson ||
-            t.customer?.assignedSalesperson ===
-              selectedSalesperson
-        );
-
-  /* ======================================================
-     DASHBOARD SUMMARY
-     ====================================================== */
-
-  const filteredPendingTasks =
-    filteredTasks.filter(
-      (t) => t.status === 'Pending'
+    const todayFollowUps = pendingFollowUps.filter(
+      (f) => getDubaiDate(f.dueAt) === today
     );
 
-  const todayDubai = getDubaiToday();
+    const overdueFollowUps = pendingFollowUps.filter(
+      (f) => isOverdue(f.dueAt)
+    );
 
-  const filteredSummary = {
-    customers: filteredCustomers.length,
+    const completedFollowUps = followUps.filter(
+      (f) => f.status === "Completed"
+    );
 
-    pending: filteredPendingTasks.length,
+    const convertedCustomers = customers.filter(
+      (c) => c.status === "Converted"
+    );
 
-    today: filteredPendingTasks.filter(
-      (t) =>
-        getDubaiDate(t.dueAt) ===
-        todayDubai
-    ).length,
+    const quotationValue = customers.reduce(
+      (total, customer) =>
+        total + Number(customer.quotationAmount || 0),
+      0
+    );
 
-    overdue: filteredPendingTasks.filter(
-      (t) => isOverdue(t.dueAt)
-    ).length,
+    return {
+      customers: customers.length,
+      pending: pendingFollowUps.length,
+      today: todayFollowUps.length,
+      overdue: overdueFollowUps.length,
+      completed: completedFollowUps.length,
+      converted: convertedCustomers.length,
+      quotationAmount: quotationValue
+    };
+  }, [customers, followUps]);
 
-    completed: filteredTasks.filter(
-      (t) => t.status === 'Completed'
-    ).length,
+  /* =====================================================
+     CUSTOMER FILTER
+  ===================================================== */
 
-    converted: filteredCustomers.filter(
-      (c) => c.status === 'Converted'
-    ).length,
+  const filteredCustomers = useMemo(() => {
+    const search = customerSearch
+      .trim()
+      .toLowerCase();
 
-    quotationAmount:
-      filteredCustomers.reduce(
-        (total, c) =>
-          total +
-          Number(c.quotationAmount || 0),
-        0
-      )
-  };
+    if (!search) return customers;
 
-  /* ======================================================
-     CUSTOMER
-     ====================================================== */
+    return customers.filter((customer) =>
+      [
+        customer.customerCode,
+        customer.name,
+        customer.phone,
+        customer.whatsapp,
+        customer.email,
+        customer.location,
+        customer.assignedSalesperson,
+        customer.productInterest,
+        customer.status
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(search)
+    );
+  }, [customers, customerSearch]);
 
-  const addCustomer = async (e) => {
-    e.preventDefault();
+  /* =====================================================
+     FOLLOW-UP FILTER
+  ===================================================== */
 
-    try {
-      await api.post('/customers', {
-        ...form,
-        quotationAmount:
-          Number(form.quotationAmount || 0)
-      });
+  const filteredFollowUps = useMemo(() => {
+    const search = followUpSearch
+      .trim()
+      .toLowerCase();
 
-      setForm({
-        name: '',
-        phone: '',
-        whatsapp: '',
-        email: '',
-        location: '',
-        productInterest: '',
-        quotationAmount: '',
-        assignedSalesperson: '',
-        status: 'New'
-      });
+    return followUps.filter((followUp) => {
+      const customerName =
+        followUp.customer?.name || "";
 
-      await load();
-    } catch (err) {
-      console.error(err);
+      const customerCode =
+        followUp.customer?.customerCode || "";
 
-      alert(
-        err.response?.data?.message ||
-          'Unable to save customer.'
+      const salesperson =
+        followUp.salesperson || "";
+
+      const matchesSearch =
+        !search ||
+        [
+          customerName,
+          customerCode,
+          salesperson,
+          followUp.type,
+          followUp.priority,
+          followUp.status,
+          followUp.summary,
+          followUp.nextAction
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(search);
+
+      const matchesStatus =
+        followUpStatusFilter === "All" ||
+        followUp.status === followUpStatusFilter;
+
+      const matchesSalesperson =
+        followUpSalespersonFilter === "All" ||
+        normalizeName(followUp.salesperson) ===
+          normalizeName(followUpSalespersonFilter);
+
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesSalesperson
       );
-    }
+    });
+  }, [
+    followUps,
+    followUpSearch,
+    followUpStatusFilter,
+    followUpSalespersonFilter
+  ]);
+
+  /* =====================================================
+     CUSTOMER FORM HANDLERS
+  ===================================================== */
+
+  const handleCustomerChange = (e) => {
+    const { name, value } = e.target;
+
+    setCustomerForm((prev) => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
-  /* ======================================================
-     FOLLOW-UP
-     ====================================================== */
-
-  const addTask = async (e) => {
+  const saveCustomer = async (e) => {
     e.preventDefault();
 
+    if (!customerForm.name.trim()) {
+      alert("Customer name is required.");
+      return;
+    }
+
     try {
-      const dataToSave = {
-        ...task,
-        dueAt: dubaiLocalToISO(task.dueAt)
+      setSavingCustomer(true);
+
+      const payload = {
+        ...customerForm,
+        quotationAmount:
+          Number(customerForm.quotationAmount || 0)
       };
 
-      await api.post(
-        '/followups',
-        dataToSave
+      const response = await axios.post(
+        `${API}/customers`,
+        payload
       );
 
-      setTask({
-        customer: '',
-        salesperson: '',
-        dueAt: '',
-        type: 'Call',
-        priority: 'Medium',
-        summary: '',
-        nextAction: ''
+      setCustomers((prev) => [
+        response.data,
+        ...prev
+      ]);
+
+      setCustomerForm({
+        name: "",
+        phone: "",
+        whatsapp: "",
+        email: "",
+        location: "",
+        source: "Walk-in",
+        assignedSalesperson: "",
+        status: "New",
+        productInterest: "",
+        quotationAmount: ""
       });
 
-      await load();
-    } catch (err) {
-      console.error(err);
+      await loadData();
+
+      alert("Customer saved successfully.");
+    } catch (error) {
+      console.error(error);
 
       alert(
-        err.response?.data?.message ||
-          'Unable to schedule follow-up.'
+        error.response?.data?.message ||
+          "Failed to save customer."
       );
+    } finally {
+      setSavingCustomer(false);
     }
   };
 
-  /* ======================================================
-     SALESPERSON MASTER
-     ====================================================== */
+  /* =====================================================
+     SALESPERSON HANDLERS
+  ===================================================== */
+
+  const handleSalespersonChange = (e) => {
+    const { name, value } = e.target;
+
+    setSalespersonForm((prev) => ({
+      ...prev,
+      [name]: value
+    }));
+  };
 
   const saveSalesperson = async (e) => {
     e.preventDefault();
 
+    if (!salespersonForm.name.trim()) {
+      alert("Salesperson name is required.");
+      return;
+    }
+
     try {
-      if (editingSalesperson) {
-        await api.patch(
-          `/salespersons/${editingSalesperson._id}`,
-          salespersonForm
-        );
-      } else {
-        await api.post(
-          '/salespersons',
-          salespersonForm
-        );
-      }
+      setSavingSalesperson(true);
+
+      const response = await axios.post(
+        `${API}/salespersons`,
+        salespersonForm
+      );
+
+      setSalespersons((prev) =>
+        [...prev, response.data].sort((a, b) =>
+          String(a.name || "").localeCompare(
+            String(b.name || "")
+          )
+        )
+      );
 
       setSalespersonForm({
-        name: '',
-        phone: '',
-        whatsapp: '',
-        email: '',
-        department: 'Sales',
-        location: '',
-        status: 'Active'
+        name: "",
+        location: "",
+        status: "Active"
       });
 
-      setEditingSalesperson(null);
-
-      await load();
-    } catch (err) {
-      console.error(err);
+      alert("Salesperson saved successfully.");
+    } catch (error) {
+      console.error(error);
 
       alert(
-        err.response?.data?.message ||
-          'Unable to save salesperson.'
+        error.response?.data?.message ||
+          "Failed to save salesperson."
       );
+    } finally {
+      setSavingSalesperson(false);
     }
   };
 
-  const editSalesperson = (sp) => {
-    setEditingSalesperson(sp);
+  /* =====================================================
+     FOLLOW-UP FORM HANDLERS
+  ===================================================== */
 
-    setSalespersonForm({
-      name: sp.name || '',
-      phone: sp.phone || '',
-      whatsapp: sp.whatsapp || '',
-      email: sp.email || '',
-      department:
-        sp.department || 'Sales',
-      location: sp.location || '',
-      status: sp.status || 'Active'
-    });
+  const handleFollowUpChange = (e) => {
+    const { name, value } = e.target;
 
-    setTab('Salesperson Master');
+    setFollowUpForm((prev) => ({
+      ...prev,
+      [name]: value
+    }));
+
+    if (
+      name === "customer" &&
+      value
+    ) {
+      const selectedCustomer = customers.find(
+        (customer) => customer._id === value
+      );
+
+      if (
+        selectedCustomer?.assignedSalesperson
+      ) {
+        setFollowUpForm((prev) => ({
+          ...prev,
+          customer: value,
+          salesperson:
+            selectedCustomer.assignedSalesperson
+        }));
+      }
+    }
   };
 
-  const cancelSalespersonEdit = () => {
-    setEditingSalesperson(null);
+  const saveFollowUp = async (e) => {
+    e.preventDefault();
 
-    setSalespersonForm({
-      name: '',
-      phone: '',
-      whatsapp: '',
-      email: '',
-      department: 'Sales',
-      location: '',
-      status: 'Active'
+    if (!followUpForm.customer) {
+      alert("Please select a customer.");
+      return;
+    }
+
+    if (!followUpForm.dueAt) {
+      alert("Please select follow-up date and time.");
+      return;
+    }
+
+    try {
+      setSavingFollowUp(true);
+
+      const payload = {
+        customer: followUpForm.customer,
+        salesperson:
+          followUpForm.salesperson || "",
+        dueAt: dubaiLocalToISO(
+          followUpForm.dueAt
+        ),
+        type: followUpForm.type || "Call",
+        priority:
+          followUpForm.priority || "Medium",
+        status: "Pending",
+        summary:
+          followUpForm.summary || "",
+        nextAction:
+          followUpForm.nextAction || ""
+      };
+
+      const response = await axios.post(
+        `${API}/followups`,
+        payload
+      );
+
+      setFollowUps((prev) =>
+        [...prev, response.data].sort(
+          (a, b) =>
+            new Date(a.dueAt) -
+            new Date(b.dueAt)
+        )
+      );
+
+      setFollowUpForm({
+        customer: "",
+        salesperson: "",
+        dueAt: "",
+        type: "Call",
+        priority: "Medium",
+        summary: "",
+        nextAction: ""
+      });
+
+      await loadData();
+
+      alert("Follow-up saved successfully.");
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        error.response?.data?.message ||
+          "Failed to save follow-up."
+      );
+    } finally {
+      setSavingFollowUp(false);
+    }
+  };
+
+  /* =====================================================
+     COMPLETE FOLLOW-UP
+  ===================================================== */
+
+  const completeFollowUp = async (id) => {
+    if (!id) return;
+
+    try {
+      setCompletingId(id);
+
+      const response = await axios.patch(
+        `${API}/followups/${id}`,
+        {
+          status: "Completed"
+        }
+      );
+
+      setFollowUps((prev) =>
+        prev.map((followUp) =>
+          followUp._id === id
+            ? response.data
+            : followUp
+        )
+      );
+
+      await loadData();
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        error.response?.data?.message ||
+          "Failed to complete follow-up."
+      );
+    } finally {
+      setCompletingId(null);
+    }
+  };
+
+  /* =====================================================
+     OPEN FOLLOW-UP EDIT
+  ===================================================== */
+
+  const openFollowUpEdit = (followUp) => {
+    if (!followUp) return;
+
+    setEditingFollowUp({
+      _id: followUp._id,
+
+      customer: followUp.customer,
+
+      salesperson:
+        followUp.salesperson || "",
+
+      dueAt:
+        isoToDubaiLocal(followUp.dueAt),
+
+      type:
+        followUp.type || "Call",
+
+      status:
+        followUp.status || "Pending",
+
+      priority:
+        followUp.priority || "Medium",
+
+      summary:
+        followUp.summary || "",
+
+      nextAction:
+        followUp.nextAction || ""
     });
   };
 
-  /* ======================================================
+  /* =====================================================
+     EDIT FOLLOW-UP CHANGE
+  ===================================================== */
+
+  const handleEditFollowUpChange = (e) => {
+    const { name, value } = e.target;
+
+    setEditingFollowUp((prev) => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  /* =====================================================
+     SAVE FOLLOW-UP EDIT
+  ===================================================== */
+
+  const saveFollowUpEdit = async () => {
+    if (!editingFollowUp) return;
+
+    if (!editingFollowUp.dueAt) {
+      alert("Follow-up date and time are required.");
+      return;
+    }
+
+    try {
+      setSavingFollowUpEdit(true);
+
+      const payload = {
+        dueAt: dubaiLocalToISO(
+          editingFollowUp.dueAt
+        ),
+
+        salesperson:
+          editingFollowUp.salesperson || "",
+
+        type:
+          editingFollowUp.type || "Call",
+
+        status:
+          editingFollowUp.status || "Pending",
+
+        priority:
+          editingFollowUp.priority || "Medium",
+
+        summary:
+          editingFollowUp.summary || "",
+
+        nextAction:
+          editingFollowUp.nextAction || ""
+      };
+
+      const response = await axios.patch(
+        `${API}/followups/${editingFollowUp._id}`,
+        payload
+      );
+
+      setFollowUps((prev) =>
+        prev
+          .map((followUp) =>
+            followUp._id ===
+            editingFollowUp._id
+              ? response.data
+              : followUp
+          )
+          .sort(
+            (a, b) =>
+              new Date(a.dueAt) -
+              new Date(b.dueAt)
+          )
+      );
+
+      setEditingFollowUp(null);
+
+      await loadData();
+
+      alert("Follow-up updated successfully.");
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        error.response?.data?.message ||
+          "Failed to update follow-up."
+      );
+    } finally {
+      setSavingFollowUpEdit(false);
+    }
+  };
+
+  /* =====================================================
      RENDER
-     ====================================================== */
+  ===================================================== */
+
+  if (loading) {
+    return (
+      <div className="app">
+        <div className="loading">
+          Loading dashboard...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app">
 
-      {/* ==================================================
-          SIDEBAR
-          ================================================== */}
+      {/* =================================================
+          HEADER
+      ================================================= */}
 
-      <aside>
-        <h2>Western Furniture</h2>
+      <header className="app-header">
 
-        <p className="muted">
-          Customer CRM
-        </p>
+        <div>
+          <h1>Western Furniture CRM</h1>
+          <p>Customer Follow-up Dashboard</p>
+        </div>
 
-        {[
-          'Dashboard',
-          'Salesperson Master',
-          'Customers',
-          'Follow-ups'
-        ].map((item) => (
-          <button
-            key={item}
-            className={
-              tab === item
-                ? 'nav active'
-                : 'nav'
-            }
-            onClick={() => setTab(item)}
-          >
-            {item}
-          </button>
-        ))}
-      </aside>
+        <button
+          className="btn btn-secondary"
+          onClick={loadData}
+        >
+          Refresh
+        </button>
 
-      {/* ==================================================
-          MAIN CONTENT
-          ================================================== */}
+      </header>
 
-      <main>
+      {/* =================================================
+          NAVIGATION
+      ================================================= */}
 
-        <header>
-          <div>
-            <h1>{tab}</h1>
-            <p className="muted">
-              Western Furniture Customer CRM
-            </p>
-          </div>
-        </header>
+      <nav className="tabs">
 
-        {error && (
-          <div className="error">
-            {error}
-          </div>
-        )}
+        <button
+          className={
+            activeTab === "dashboard"
+              ? "tab active"
+              : "tab"
+          }
+          onClick={() =>
+            setActiveTab("dashboard")
+          }
+        >
+          Dashboard
+        </button>
 
-        {/* ==================================================
+        <button
+          className={
+            activeTab === "salespersons"
+              ? "tab active"
+              : "tab"
+          }
+          onClick={() =>
+            setActiveTab("salespersons")
+          }
+        >
+          Salesperson Master
+        </button>
+
+        <button
+          className={
+            activeTab === "customers"
+              ? "tab active"
+              : "tab"
+          }
+          onClick={() =>
+            setActiveTab("customers")
+          }
+        >
+          Customers
+        </button>
+
+        <button
+          className={
+            activeTab === "followups"
+              ? "tab active"
+              : "tab"
+          }
+          onClick={() =>
+            setActiveTab("followups")
+          }
+        >
+          Follow-ups
+        </button>
+
+      </nav>
+
+      <main className="content">
+
+        {/* =================================================
             DASHBOARD
-            ================================================== */}
+        ================================================= */}
 
-        {tab === 'Dashboard' && (
-          <>
-            <section className="panel">
+        {activeTab === "dashboard" && (
+          <section>
 
-              <h2>
-                Salesperson Filter
-              </h2>
+            <div className="page-header">
+              <div>
+                <h2>Dashboard</h2>
+                <p>
+                  Customer and follow-up overview
+                </p>
+              </div>
+            </div>
 
-              <select
-                value={selectedSalesperson}
-                onChange={(e) =>
-                  setSelectedSalesperson(
-                    e.target.value
-                  )
-                }
-              >
-                <option value="All">
-                  All Salespersons
-                </option>
+            <div className="stats-grid">
 
-                {activeSalespersons.map(
-                  (sp) => (
-                    <option
-                      key={sp._id}
-                      value={sp.name}
-                    >
-                      {sp.salespersonCode} —{' '}
-                      {sp.name}
-                    </option>
-                  )
-                )}
-              </select>
+              <StatCard
+                title="Customers"
+                value={dashboardStats.customers}
+              />
 
-            </section>
+              <StatCard
+                title="Pending Follow-ups"
+                value={dashboardStats.pending}
+              />
 
-            {/* KPI CARDS */}
+              <StatCard
+                title="Due Today"
+                value={dashboardStats.today}
+              />
 
-            <section className="cards">
+              <StatCard
+                title="Overdue"
+                value={dashboardStats.overdue}
+              />
 
-              {[
-                [
-                  'Customers',
-                  filteredSummary.customers
-                ],
-                [
-                  'Pending Follow-ups',
-                  filteredSummary.pending
-                ],
-                [
-                  'Due Today',
-                  filteredSummary.today
-                ],
-                [
-                  'Overdue',
-                  filteredSummary.overdue
-                ],
-                [
-                  'Completed',
-                  filteredSummary.completed
-                ],
-                [
-                  'Converted',
-                  filteredSummary.converted
-                ],
-                [
-                  'Quotation Value',
-                  `AED ${Number(
-                    filteredSummary.quotationAmount ||
-                      0
-                  ).toLocaleString()}`
-                ]
-              ].map(
-                ([label, value]) => (
-                  <div
-                    className="card"
-                    key={label}
-                  >
-                    <span>{label}</span>
+              <StatCard
+                title="Completed"
+                value={dashboardStats.completed}
+              />
 
+              <StatCard
+                title="Converted"
+                value={dashboardStats.converted}
+              />
+
+              <StatCard
+                title="Quotation Value"
+                value={`AED ${dashboardStats.quotationAmount.toLocaleString(
+                  "en-AE",
+                  {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 2
+                  }
+                )}`}
+              />
+
+            </div>
+
+            <div className="dashboard-grid">
+
+              <div className="card">
+
+                <div className="card-header">
+                  <h3>Follow-up Summary</h3>
+                </div>
+
+                <div className="summary-list">
+
+                  <div className="summary-row">
+                    <span>Pending</span>
                     <strong>
-                      {value ?? 0}
+                      {dashboardStats.pending}
                     </strong>
                   </div>
-                )
-              )}
 
-            </section>
+                  <div className="summary-row">
+                    <span>Due Today</span>
+                    <strong>
+                      {dashboardStats.today}
+                    </strong>
+                  </div>
 
-            {/* PRIORITY FOLLOW-UPS */}
+                  <div className="summary-row">
+                    <span>Overdue</span>
+                    <strong>
+                      {dashboardStats.overdue}
+                    </strong>
+                  </div>
 
-            <section className="panel">
+                  <div className="summary-row">
+                    <span>Completed</span>
+                    <strong>
+                      {dashboardStats.completed}
+                    </strong>
+                  </div>
 
-              <h2>
-                Priority follow-ups
-                {selectedSalesperson !==
-                'All'
-                  ? ` - ${selectedSalesperson}`
-                  : ''}
-              </h2>
+                </div>
 
-              {filteredPendingTasks.length ===
-              0 ? (
-                <p className="muted">
-                  No pending follow-ups.
-                </p>
-              ) : (
-                <TaskTable
-                  tasks={filteredPendingTasks}
-                  load={load}
-                />
-              )}
+              </div>
 
-            </section>
+              <div className="card">
 
-            {/* SALESPERSON ACTIVITY */}
+                <div className="card-header">
+                  <h3>Customer Summary</h3>
+                </div>
 
-            <section className="panel">
+                <div className="summary-list">
 
-              <h2>
-                Salesperson Activity
-              </h2>
+                  <div className="summary-row">
+                    <span>Total Customers</span>
+                    <strong>
+                      {dashboardStats.customers}
+                    </strong>
+                  </div>
 
-              <SalespersonTable
-                customers={filteredCustomers}
-                tasks={filteredTasks}
-                salespersonMaster={
-                  salespersonMaster
-                }
-              />
+                  <div className="summary-row">
+                    <span>Converted</span>
+                    <strong>
+                      {dashboardStats.converted}
+                    </strong>
+                  </div>
 
-            </section>
-          </>
+                  <div className="summary-row">
+                    <span>Quotation Value</span>
+                    <strong>
+                      AED{" "}
+                      {dashboardStats.quotationAmount.toLocaleString(
+                        "en-AE"
+                      )}
+                    </strong>
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </section>
         )}
 
-        {/* ==================================================
+        {/* =================================================
             SALESPERSON MASTER
-            ================================================== */}
+        ================================================= */}
 
-        {tab === 'Salesperson Master' && (
-          <>
-            <section className="panel">
+        {activeTab === "salespersons" && (
+          <section>
 
-              <h2>
-                {editingSalesperson
-                  ? 'Edit Salesperson'
-                  : 'Add Salesperson'}
-              </h2>
+            <div className="page-header">
+              <div>
+                <h2>Salesperson Master</h2>
+                <p>
+                  Manage active salespersons
+                </p>
+              </div>
+            </div>
+
+            <div className="card">
+
+              <div className="card-header">
+                <h3>Add Salesperson</h3>
+              </div>
 
               <form
+                className="form-grid"
                 onSubmit={saveSalesperson}
-                className="form"
               >
 
-                <input
-                  required
-                  placeholder="Name"
-                  value={
-                    salespersonForm.name
-                  }
-                  onChange={(e) =>
-                    setSalespersonForm({
-                      ...salespersonForm,
-                      name:
-                        e.target.value
-                    })
-                  }
-                />
+                <div className="form-group">
+                  <label>Name</label>
 
-                <input
-                  placeholder="Phone"
-                  value={
-                    salespersonForm.phone
-                  }
-                  onChange={(e) =>
-                    setSalespersonForm({
-                      ...salespersonForm,
-                      phone:
-                        e.target.value
-                    })
-                  }
-                />
+                  <input
+                    name="name"
+                    value={
+                      salespersonForm.name
+                    }
+                    onChange={
+                      handleSalespersonChange
+                    }
+                    placeholder="Salesperson name"
+                    required
+                  />
+                </div>
 
-                <input
-                  placeholder="WhatsApp"
-                  value={
-                    salespersonForm.whatsapp
-                  }
-                  onChange={(e) =>
-                    setSalespersonForm({
-                      ...salespersonForm,
-                      whatsapp:
-                        e.target.value
-                    })
-                  }
-                />
+                <div className="form-group">
+                  <label>Location</label>
 
-                <input
-                  type="email"
-                  placeholder="Email"
-                  value={
-                    salespersonForm.email
-                  }
-                  onChange={(e) =>
-                    setSalespersonForm({
-                      ...salespersonForm,
-                      email:
-                        e.target.value
-                    })
-                  }
-                />
-
-                <select
-                  value={
-                    salespersonForm.department
-                  }
-                  onChange={(e) =>
-                    setSalespersonForm({
-                      ...salespersonForm,
-                      department:
-                        e.target.value
-                    })
-                  }
-                >
-                  <option value="Sales">
-                    Sales
-                  </option>
-
-                  <option value="Sales Admin">
-                    Sales Admin
-                  </option>
-
-                  <option value="Management">
-                    Management
-                  </option>
-                </select>
-
-                <input
-                  placeholder="Location"
-                  value={
-                    salespersonForm.location
-                  }
-                  onChange={(e) =>
-                    setSalespersonForm({
-                      ...salespersonForm,
-                      location:
-                        e.target.value
-                    })
-                  }
-                />
-
-                <select
-                  value={
-                    salespersonForm.status
-                  }
-                  onChange={(e) =>
-                    setSalespersonForm({
-                      ...salespersonForm,
-                      status:
-                        e.target.value
-                    })
-                  }
-                >
-                  <option value="Active">
-                    Active
-                  </option>
-
-                  <option value="Inactive">
-                    Inactive
-                  </option>
-                </select>
-
-                <button type="submit">
-                  {editingSalesperson
-                    ? 'Update Salesperson'
-                    : 'Add Salesperson'}
-                </button>
-
-                {editingSalesperson && (
-                  <button
-                    type="button"
-                    onClick={
-                      cancelSalespersonEdit
+                  <select
+                    name="location"
+                    value={
+                      salespersonForm.location
+                    }
+                    onChange={
+                      handleSalespersonChange
                     }
                   >
-                    Cancel
+                    <option value="">
+                      Select Location
+                    </option>
+
+                    <option value="Natuzzi Zabeel">
+                      Natuzzi Zabeel
+                    </option>
+
+                    <option value="Natuzzi Mega Store">
+                      Natuzzi Mega Store
+                    </option>
+
+                    <option value="ADH Galleria">
+                      ADH Galleria
+                    </option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Status</label>
+
+                  <select
+                    name="status"
+                    value={
+                      salespersonForm.status
+                    }
+                    onChange={
+                      handleSalespersonChange
+                    }
+                  >
+                    <option value="Active">
+                      Active
+                    </option>
+
+                    <option value="Inactive">
+                      Inactive
+                    </option>
+                  </select>
+                </div>
+
+                <div className="form-actions">
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={savingSalesperson}
+                  >
+                    {savingSalesperson
+                      ? "Saving..."
+                      : "Add Salesperson"}
                   </button>
-                )}
+                </div>
 
               </form>
 
-            </section>
+            </div>
 
-            <section className="panel">
+            <div className="card">
 
-              <h2>
-                Salesperson Master
-              </h2>
+              <div className="card-header">
+                <h3>
+                  Salespersons (
+                  {salespersons.length})
+                </h3>
+              </div>
 
-              <p className="muted">
-                Master list of all
-                salespersons
-              </p>
+              <div className="table-wrapper">
 
-              <p>
-                <strong>
-                  {salespersonMaster.length}
-                </strong>{' '}
-                Salespersons
-              </p>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Name</th>
+                      <th>Location</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
 
-              <table>
-                <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Phone</th>
-                    <th>WhatsApp</th>
-                    <th>Email</th>
-                    <th>Department</th>
-                    <th>Location</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
+                  <tbody>
 
-                <tbody>
-                  {salespersonMaster.map(
-                    (sp) => (
-                      <tr key={sp._id}>
+                    {salespersons.map(
+                      (salesperson) => (
+                        <tr
+                          key={
+                            salesperson._id
+                          }
+                        >
+                          <td>
+                            {
+                              salesperson.salespersonCode
+                            }
+                          </td>
 
-                        <td>
-                          {sp.salespersonCode}
-                        </td>
+                          <td>
+                            {salesperson.name}
+                          </td>
 
-                        <td>
+                          <td>
+                            {
+                              salesperson.location ||
+                              "-"
+                            }
+                          </td>
+
+                          <td>
+                            <Badge
+                              type={
+                                salesperson.status ===
+                                "Active"
+                                  ? "success"
+                                  : "warning"
+                              }
+                            >
+                              {
+                                salesperson.status
+                              }
+                            </Badge>
+                          </td>
+                        </tr>
+                      )
+                    )}
+
+                  </tbody>
+                </table>
+
+              </div>
+
+            </div>
+
+          </section>
+        )}
+
+        {/* =================================================
+            CUSTOMERS
+        ================================================= */}
+
+        {activeTab === "customers" && (
+          <section>
+
+            <div className="page-header">
+              <div>
+                <h2>Customers</h2>
+                <p>
+                  Customer master and quotation information
+                </p>
+              </div>
+            </div>
+
+            <div className="card">
+
+              <div className="card-header">
+                <h3>Add Customer</h3>
+              </div>
+
+              <form
+                className="form-grid"
+                onSubmit={saveCustomer}
+              >
+
+                <div className="form-group">
+                  <label>Name</label>
+
+                  <input
+                    name="name"
+                    value={customerForm.name}
+                    onChange={
+                      handleCustomerChange
+                    }
+                    placeholder="Customer name"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Phone</label>
+
+                  <input
+                    name="phone"
+                    value={customerForm.phone}
+                    onChange={
+                      handleCustomerChange
+                    }
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>WhatsApp</label>
+
+                  <input
+                    name="whatsapp"
+                    value={
+                      customerForm.whatsapp
+                    }
+                    onChange={
+                      handleCustomerChange
+                    }
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Email</label>
+
+                  <input
+                    type="email"
+                    name="email"
+                    value={customerForm.email}
+                    onChange={
+                      handleCustomerChange
+                    }
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Location</label>
+
+                  <input
+                    name="location"
+                    value={
+                      customerForm.location
+                    }
+                    onChange={
+                      handleCustomerChange
+                    }
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Source</label>
+
+                  <select
+                    name="source"
+                    value={customerForm.source}
+                    onChange={
+                      handleCustomerChange
+                    }
+                  >
+                    <option value="Walk-in">
+                      Walk-in
+                    </option>
+
+                    <option value="Referral">
+                      Referral
+                    </option>
+
+                    <option value="Website">
+                      Website
+                    </option>
+
+                    <option value="Social Media">
+                      Social Media
+                    </option>
+
+                    <option value="Existing Customer">
+                      Existing Customer
+                    </option>
+
+                    <option value="Other">
+                      Other
+                    </option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Salesperson</label>
+
+                  <select
+                    name="assignedSalesperson"
+                    value={
+                      customerForm.assignedSalesperson
+                    }
+                    onChange={
+                      handleCustomerChange
+                    }
+                  >
+                    <option value="">
+                      Select Salesperson
+                    </option>
+
+                    {salespersons
+                      .filter(
+                        (sp) =>
+                          sp.status ===
+                          "Active"
+                      )
+                      .map((sp) => (
+                        <option
+                          key={sp._id}
+                          value={sp.name}
+                        >
                           {sp.name}
-                        </td>
+                        </option>
+                      ))}
+                  </select>
+                </div>
 
-                        <td>
-                          {sp.phone || '—'}
-                        </td>
+                <div className="form-group">
+                  <label>Status</label>
 
-                        <td>
-                          {sp.whatsapp || '—'}
-                        </td>
+                  <select
+                    name="status"
+                    value={customerForm.status}
+                    onChange={
+                      handleCustomerChange
+                    }
+                  >
+                    <option value="New">
+                      New
+                    </option>
 
-                        <td>
-                          {sp.email || '—'}
-                        </td>
+                    <option value="Contacted">
+                      Contacted
+                    </option>
 
-                        <td>
-                          {sp.department || '—'}
-                        </td>
+                    <option value="Quoted">
+                      Quoted
+                    </option>
 
-                        <td>
-                          {sp.location || '—'}
-                        </td>
+                    <option value="Negotiation">
+                      Negotiation
+                    </option>
 
-                        <td>
-                          {sp.status}
-                        </td>
+                    <option value="Converted">
+                      Converted
+                    </option>
 
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              editSalesperson(
-                                sp
-                              )
+                    <option value="Lost">
+                      Lost
+                    </option>
+
+                    <option value="Active">
+                      Active
+                    </option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Product Interest</label>
+
+                  <input
+                    name="productInterest"
+                    value={
+                      customerForm.productInterest
+                    }
+                    onChange={
+                      handleCustomerChange
+                    }
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Quotation Amount</label>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    name="quotationAmount"
+                    value={
+                      customerForm.quotationAmount
+                    }
+                    onChange={
+                      handleCustomerChange
+                    }
+                    placeholder="AED"
+                  />
+                </div>
+
+                <div className="form-actions">
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={savingCustomer}
+                  >
+                    {savingCustomer
+                      ? "Saving..."
+                      : "Add Customer"}
+                  </button>
+                </div>
+
+              </form>
+
+            </div>
+
+            <div className="card">
+
+              <div className="card-header">
+
+                <h3>
+                  Customer Directory (
+                  {filteredCustomers.length})
+                </h3>
+
+                <input
+                  className="search-input"
+                  value={customerSearch}
+                  onChange={(e) =>
+                    setCustomerSearch(
+                      e.target.value
+                    )
+                  }
+                  placeholder="Search customers..."
+                />
+
+              </div>
+
+              <div className="table-wrapper">
+
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Name</th>
+                      <th>Phone</th>
+                      <th>Location</th>
+                      <th>Source</th>
+                      <th>Salesperson</th>
+                      <th>Status</th>
+                      <th>Product</th>
+                      <th>Quotation</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+
+                    {filteredCustomers.length ===
+                    0 ? (
+                      <tr>
+                        <td
+                          colSpan="9"
+                          className="empty"
+                        >
+                          No customers found.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredCustomers.map(
+                        (customer) => (
+                          <tr
+                            key={
+                              customer._id
                             }
                           >
-                            Edit
-                          </button>
-                        </td>
+                            <td>
+                              {
+                                customer.customerCode
+                              }
+                            </td>
 
-                      </tr>
-                    )
-                  )}
+                            <td>
+                              {customer.name}
+                            </td>
 
-                  {salespersonMaster.length ===
-                    0 && (
-                    <tr>
-                      <td
-                        colSpan="9"
-                        style={{
-                          textAlign:
-                            'center'
-                        }}
-                      >
-                        No salespersons
-                        found. Use the Add
-                        Salesperson form
-                        above to create the
-                        first salesperson.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                            <td>
+                              {customer.phone ||
+                                "-"}
+                            </td>
 
-            </section>
-          </>
+                            <td>
+                              {customer.location ||
+                                "-"}
+                            </td>
+
+                            <td>
+                              {customer.source ||
+                                "-"}
+                            </td>
+
+                            <td>
+                              {
+                                customer.assignedSalesperson ||
+                                "-"
+                              }
+                            </td>
+
+                            <td>
+                              <Badge>
+                                {
+                                  customer.status
+                                }
+                              </Badge>
+                            </td>
+
+                            <td>
+                              {
+                                customer.productInterest ||
+                                "-"
+                              }
+                            </td>
+
+                            <td>
+                              AED{" "}
+                              {Number(
+                                customer.quotationAmount ||
+                                  0
+                              ).toLocaleString(
+                                "en-AE",
+                                {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 2
+                                }
+                              )}
+                            </td>
+
+                          </tr>
+                        )
+                      )
+                    )}
+
+                  </tbody>
+                </table>
+
+              </div>
+
+            </div>
+
+          </section>
         )}
 
-        {/* ==================================================
-            CUSTOMERS
-            ================================================== */}
-
-        {tab === 'Customers' && (
-          <>
-            <section className="panel">
-
-              <h2>Add customer</h2>
-
-              <form
-                onSubmit={addCustomer}
-                className="form"
-              >
-
-                <input
-                  required
-                  placeholder="Customer Name"
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      name:
-                        e.target.value
-                    })
-                  }
-                />
-
-                <input
-                  placeholder="Phone"
-                  value={form.phone}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      phone:
-                        e.target.value
-                    })
-                  }
-                />
-
-                <input
-                  placeholder="WhatsApp"
-                  value={form.whatsapp}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      whatsapp:
-                        e.target.value
-                    })
-                  }
-                />
-
-                <input
-                  type="email"
-                  placeholder="Email"
-                  value={form.email}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      email:
-                        e.target.value
-                    })
-                  }
-                />
-
-                <input
-                  placeholder="Location"
-                  value={form.location}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      location:
-                        e.target.value
-                    })
-                  }
-                />
-
-                <input
-                  placeholder="Product Interest"
-                  value={
-                    form.productInterest
-                  }
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      productInterest:
-                        e.target.value
-                    })
-                  }
-                />
-
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="Quotation Amount"
-                  value={
-                    form.quotationAmount
-                  }
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      quotationAmount:
-                        e.target.value
-                    })
-                  }
-                />
-
-                <select
-                  value={
-                    form.assignedSalesperson
-                  }
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      assignedSalesperson:
-                        e.target.value
-                    })
-                  }
-                >
-                  <option value="">
-                    Select Salesperson
-                  </option>
-
-                  {activeSalespersons.map(
-                    (sp) => (
-                      <option
-                        key={sp._id}
-                        value={sp.name}
-                      >
-                        {sp.salespersonCode} —{' '}
-                        {sp.name}
-                      </option>
-                    )
-                  )}
-                </select>
-
-                <select
-                  value={form.status}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      status:
-                        e.target.value
-                    })
-                  }
-                >
-                  <option value="New">
-                    New
-                  </option>
-
-                  <option value="Contacted">
-                    Contacted
-                  </option>
-
-                  <option value="Quoted">
-                    Quoted
-                  </option>
-
-                  <option value="Negotiation">
-                    Negotiation
-                  </option>
-
-                  <option value="Converted">
-                    Converted
-                  </option>
-
-                  <option value="Lost">
-                    Lost
-                  </option>
-                </select>
-
-                <button type="submit">
-                  Add Customer
-                </button>
-
-              </form>
-
-            </section>
-
-            <section className="panel">
-
-              <h2>Customer master</h2>
-
-              <table>
-
-                <thead>
-                  <tr>
-                    <th>Customer Code</th>
-                    <th>Name</th>
-                    <th>Contact</th>
-                    <th>Product</th>
-                    <th>Salesperson</th>
-                    <th>Quotation Amount</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-
-                  {filteredCustomers.map(
-                    (c) => (
-                      <tr key={c._id}>
-
-                        <td>
-                          {c.customerCode}
-                        </td>
-
-                        <td>
-                          {c.name}
-                        </td>
-
-                        <td>
-                          {c.phone || '—'}
-                        </td>
-
-                        <td>
-                          {c.productInterest ||
-                            '—'}
-                        </td>
-
-                        <td>
-                          {c.assignedSalesperson ||
-                            '—'}
-                        </td>
-
-                        <td>
-                          AED{' '}
-                          {Number(
-                            c.quotationAmount ||
-                              0
-                          ).toLocaleString()}
-                        </td>
-
-                        <td>
-                          {c.status}
-                        </td>
-
-                      </tr>
-                    )
-                  )}
-
-                  {filteredCustomers.length ===
-                    0 && (
-                    <tr>
-                      <td
-                        colSpan="7"
-                        style={{
-                          textAlign:
-                            'center'
-                        }}
-                      >
-                        No customers found.
-                      </td>
-                    </tr>
-                  )}
-
-                </tbody>
-
-              </table>
-
-            </section>
-          </>
-        )}
-
-        {/* ==================================================
+        {/* =================================================
             FOLLOW-UPS
-            ================================================== */}
+        ================================================= */}
 
-        {tab === 'Follow-ups' && (
-          <>
-            <section className="panel">
+        {activeTab === "followups" && (
+          <section>
 
-              <h2>
-                Schedule follow-up
-              </h2>
+            <div className="page-header">
+              <div>
+                <h2>Follow-ups</h2>
+                <p>
+                  Schedule and manage customer follow-ups
+                </p>
+              </div>
+            </div>
+
+            {/* ---------------------------------------------
+                ADD FOLLOW-UP
+            --------------------------------------------- */}
+
+            <div className="card">
+
+              <div className="card-header">
+                <h3>Schedule Follow-up</h3>
+              </div>
 
               <form
-                onSubmit={addTask}
-                className="form"
+                className="form-grid"
+                onSubmit={saveFollowUp}
               >
 
-                {/* CUSTOMER */}
+                <div className="form-group">
+                  <label>Customer</label>
 
-                <select
-                  required
-                  value={task.customer}
-                  onChange={(e) => {
+                  <select
+                    name="customer"
+                    value={
+                      followUpForm.customer
+                    }
+                    onChange={
+                      handleFollowUpChange
+                    }
+                    required
+                  >
+                    <option value="">
+                      Select Customer
+                    </option>
 
-                    const customer =
-                      customers.find(
-                        (c) =>
-                          c._id ===
-                          e.target.value
-                      );
+                    {customers.map(
+                      (customer) => (
+                        <option
+                          key={customer._id}
+                          value={customer._id}
+                        >
+                          {customer.customerCode} -{" "}
+                          {customer.name}
+                        </option>
+                      )
+                    )}
 
-                    setTask({
-                      ...task,
-                      customer:
-                        e.target.value,
-                      salesperson:
-                        customer?.assignedSalesperson ||
-                        ''
-                    });
-                  }}
-                >
-                  <option value="">
-                    Select customer
-                  </option>
+                  </select>
+                </div>
 
-                  {customers.map(
-                    (c) => (
-                      <option
-                        key={c._id}
-                        value={c._id}
-                      >
-                        {c.name} —{' '}
-                        {c.customerCode}
-                      </option>
-                    )
-                  )}
+                <div className="form-group">
+                  <label>Salesperson</label>
 
-                </select>
+                  <select
+                    name="salesperson"
+                    value={
+                      followUpForm.salesperson
+                    }
+                    onChange={
+                      handleFollowUpChange
+                    }
+                  >
+                    <option value="">
+                      Select Salesperson
+                    </option>
 
-                {/* SALESPERSON */}
+                    {salespersons
+                      .filter(
+                        (sp) =>
+                          sp.status ===
+                          "Active"
+                      )
+                      .map((sp) => (
+                        <option
+                          key={sp._id}
+                          value={sp.name}
+                        >
+                          {sp.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
 
-                <select
-                  value={task.salesperson}
+                <div className="form-group">
+                  <label>Date & Time</label>
+
+                  <input
+                    type="datetime-local"
+                    name="dueAt"
+                    value={
+                      followUpForm.dueAt
+                    }
+                    onChange={
+                      handleFollowUpChange
+                    }
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Type</label>
+
+                  <select
+                    name="type"
+                    value={
+                      followUpForm.type
+                    }
+                    onChange={
+                      handleFollowUpChange
+                    }
+                  >
+                    <option value="Call">
+                      Call
+                    </option>
+
+                    <option value="WhatsApp">
+                      WhatsApp
+                    </option>
+
+                    <option value="Email">
+                      Email
+                    </option>
+
+                    <option value="Visit">
+                      Visit
+                    </option>
+
+                    <option value="Meeting">
+                      Meeting
+                    </option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Priority</label>
+
+                  <select
+                    name="priority"
+                    value={
+                      followUpForm.priority
+                    }
+                    onChange={
+                      handleFollowUpChange
+                    }
+                  >
+                    <option value="Low">
+                      Low
+                    </option>
+
+                    <option value="Medium">
+                      Medium
+                    </option>
+
+                    <option value="High">
+                      High
+                    </option>
+
+                    <option value="Urgent">
+                      Urgent
+                    </option>
+                  </select>
+                </div>
+
+                <div className="form-group full-width">
+                  <label>Summary</label>
+
+                  <textarea
+                    name="summary"
+                    value={
+                      followUpForm.summary
+                    }
+                    onChange={
+                      handleFollowUpChange
+                    }
+                    rows="3"
+                    placeholder="Enter follow-up summary..."
+                  />
+                </div>
+
+                <div className="form-group full-width">
+                  <label>Next Action</label>
+
+                  <textarea
+                    name="nextAction"
+                    value={
+                      followUpForm.nextAction
+                    }
+                    onChange={
+                      handleFollowUpChange
+                    }
+                    rows="3"
+                    placeholder="Enter next action..."
+                  />
+                </div>
+
+                <div className="form-actions">
+
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={savingFollowUp}
+                  >
+                    {savingFollowUp
+                      ? "Saving..."
+                      : "Schedule Follow-up"}
+                  </button>
+
+                </div>
+
+              </form>
+
+            </div>
+
+            {/* ---------------------------------------------
+                FOLLOW-UP GRID
+            --------------------------------------------- */}
+
+            <div className="card">
+
+              <div className="card-header">
+
+                <h3>
+                  Follow-up List (
+                  {filteredFollowUps.length})
+                </h3>
+
+              </div>
+
+              <div className="filters">
+
+                <input
+                  className="search-input"
+                  value={followUpSearch}
                   onChange={(e) =>
-                    setTask({
-                      ...task,
-                      salesperson:
-                        e.target.value
-                    })
+                    setFollowUpSearch(
+                      e.target.value
+                    )
+                  }
+                  placeholder="Search follow-ups..."
+                />
+
+                <select
+                  value={
+                    followUpStatusFilter
+                  }
+                  onChange={(e) =>
+                    setFollowUpStatusFilter(
+                      e.target.value
+                    )
                   }
                 >
-                  <option value="">
-                    Select salesperson
+                  <option value="All">
+                    All Status
                   </option>
 
-                  {activeSalespersons.map(
-                    (sp) => (
+                  <option value="Pending">
+                    Pending
+                  </option>
+
+                  <option value="Completed">
+                    Completed
+                  </option>
+                </select>
+
+                <select
+                  value={
+                    followUpSalespersonFilter
+                  }
+                  onChange={(e) =>
+                    setFollowUpSalespersonFilter(
+                      e.target.value
+                    )
+                  }
+                >
+                  <option value="All">
+                    All Salespersons
+                  </option>
+
+                  {salespersons
+                    .filter(
+                      (sp) =>
+                        sp.status ===
+                        "Active"
+                    )
+                    .map((sp) => (
                       <option
                         key={sp._id}
                         value={sp.name}
                       >
-                        {sp.salespersonCode} —{' '}
                         {sp.name}
                       </option>
-                    )
-                  )}
-
+                    ))}
                 </select>
 
-                {/* DUE DATE/TIME */}
+              </div>
 
-                <label>
-                  Follow-up Date & Time
-                </label>
+              <div className="table-wrapper">
 
-                <input
-                  required
-                  type="datetime-local"
-                  value={task.dueAt}
-                  onChange={(e) =>
-                    setTask({
-                      ...task,
-                      dueAt:
-                        e.target.value
-                    })
-                  }
-                />
+                <table>
 
-                <select
-                  value={task.type}
-                  onChange={(e) =>
-                    setTask({
-                      ...task,
-                      type:
-                        e.target.value
-                    })
-                  }
-                >
-                  <option value="Call">
-                    Call
-                  </option>
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Salesperson</th>
+                      <th>Date & Time</th>
+                      <th>Type</th>
+                      <th>Priority</th>
+                      <th>Status</th>
+                      <th>Summary</th>
+                      <th>Next Action</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
 
-                  <option value="WhatsApp">
-                    WhatsApp
-                  </option>
+                  <tbody>
 
-                  <option value="Email">
-                    Email
-                  </option>
+                    {filteredFollowUps.length ===
+                    0 ? (
+                      <tr>
+                        <td
+                          colSpan="9"
+                          className="empty"
+                        >
+                          No follow-ups found.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredFollowUps.map(
+                        (followUp) => {
 
-                  <option value="Visit">
-                    Visit
-                  </option>
+                          const overdue =
+                            followUp.status ===
+                              "Pending" &&
+                            isOverdue(
+                              followUp.dueAt
+                            );
 
-                  <option value="Meeting">
-                    Meeting
-                  </option>
-                </select>
+                          return (
+                            <tr
+                              key={
+                                followUp._id
+                              }
+                              className={
+                                overdue
+                                  ? "overdue-row"
+                                  : ""
+                              }
+                            >
 
-                <select
-                  value={task.priority}
-                  onChange={(e) =>
-                    setTask({
-                      ...task,
-                      priority:
-                        e.target.value
-                    })
-                  }
-                >
-                  <option value="Low">
-                    Low
-                  </option>
+                              <td>
+                                <strong>
+                                  {
+                                    followUp
+                                      .customer
+                                      ?.name
+                                  }
+                                </strong>
 
-                  <option value="Medium">
-                    Medium
-                  </option>
+                                <div className="muted">
+                                  {
+                                    followUp
+                                      .customer
+                                      ?.customerCode
+                                  }
+                                </div>
+                              </td>
 
-                  <option value="High">
-                    High
-                  </option>
+                              <td>
+                                {
+                                  followUp.salesperson ||
+                                  "-"
+                                }
+                              </td>
 
-                  <option value="Urgent">
-                    Urgent
-                  </option>
-                </select>
+                              <td>
+                                {fmt(
+                                  followUp.dueAt
+                                )}
 
-                <input
-                  placeholder="Summary"
-                  value={task.summary}
-                  onChange={(e) =>
-                    setTask({
-                      ...task,
-                      summary:
-                        e.target.value
-                    })
-                  }
-                />
+                                {overdue && (
+                                  <div>
+                                    <Badge type="danger">
+                                      Overdue
+                                    </Badge>
+                                  </div>
+                                )}
+                              </td>
 
-                <input
-                  placeholder="Next action"
-                  value={task.nextAction}
-                  onChange={(e) =>
-                    setTask({
-                      ...task,
-                      nextAction:
-                        e.target.value
-                    })
-                  }
-                />
+                              <td>
+                                <Badge>
+                                  {
+                                    followUp.type
+                                  }
+                                </Badge>
+                              </td>
 
-                <button type="submit">
-                  Schedule Follow-up
-                </button>
+                              <td>
+                                <Badge>
+                                  {
+                                    followUp.priority
+                                  }
+                                </Badge>
+                              </td>
 
-              </form>
+                              <td>
 
-            </section>
+                                <Badge
+                                  type={
+                                    followUp.status ===
+                                    "Completed"
+                                      ? "success"
+                                      : "warning"
+                                  }
+                                >
+                                  {
+                                    followUp.status
+                                  }
+                                </Badge>
 
-            <section className="panel">
+                              </td>
 
-              <h2>
-                Follow-up history and tasks
-              </h2>
+                              <td>
+                                {
+                                  followUp.summary ||
+                                  "-"
+                                }
+                              </td>
 
-              <TaskTable
-                tasks={filteredTasks}
-                load={load}
-              />
+                              <td>
+                                {
+                                  followUp.nextAction ||
+                                  "-"
+                                }
+                              </td>
 
-            </section>
-          </>
+                              {/* ==================================
+                                  ACTION COLUMN
+                              ================================== */}
+
+                              <td>
+
+                                <div className="action-buttons">
+
+                                  {/* EDIT BUTTON */}
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() =>
+                                      openFollowUpEdit(
+                                        followUp
+                                      )
+                                    }
+                                  >
+                                    Edit
+                                  </button>
+
+                                  {/* COMPLETE BUTTON */}
+                                  {followUp.status ===
+                                    "Pending" && (
+                                    <button
+                                      type="button"
+                                      className="btn btn-success"
+                                      onClick={() =>
+                                        completeFollowUp(
+                                          followUp._id
+                                        )
+                                      }
+                                      disabled={
+                                        completingId ===
+                                        followUp._id
+                                      }
+                                    >
+                                      {completingId ===
+                                      followUp._id
+                                        ? "Saving..."
+                                        : "Complete"}
+                                    </button>
+                                  )}
+
+                                </div>
+
+                              </td>
+
+                            </tr>
+                          );
+                        }
+                      )
+                    )}
+
+                  </tbody>
+
+                </table>
+
+              </div>
+
+            </div>
+
+          </section>
         )}
 
       </main>
+
+      {/* =================================================
+          FOLLOW-UP EDIT MODAL
+      ================================================= */}
+
+      {editingFollowUp && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => {
+            if (
+              e.target ===
+              e.currentTarget
+            ) {
+              if (!savingFollowUpEdit) {
+                setEditingFollowUp(null);
+              }
+            }
+          }}
+        >
+
+          <div className="modal">
+
+            <div className="modal-header">
+
+              <div>
+                <h3>Edit Follow-up</h3>
+
+                <p className="modal-subtitle">
+                  Update follow-up details
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() =>
+                  !savingFollowUpEdit &&
+                  setEditingFollowUp(null)
+                }
+                disabled={
+                  savingFollowUpEdit
+                }
+              >
+                ×
+              </button>
+
+            </div>
+
+            <div className="modal-body">
+
+              <div className="form-grid">
+
+                {/* CUSTOMER */}
+
+                <div className="form-group">
+                  <label>Customer</label>
+
+                  <input
+                    type="text"
+                    value={
+                      editingFollowUp
+                        .customer
+                        ?.name || ""
+                    }
+                    disabled
+                  />
+
+                  {editingFollowUp
+                    .customer
+                    ?.customerCode && (
+                    <small className="muted">
+                      {
+                        editingFollowUp
+                          .customer
+                          .customerCode
+                      }
+                    </small>
+                  )}
+                </div>
+
+                {/* SALESPERSON */}
+
+                <div className="form-group">
+                  <label>Salesperson</label>
+
+                  <select
+                    name="salesperson"
+                    value={
+                      editingFollowUp.salesperson ||
+                      ""
+                    }
+                    onChange={
+                      handleEditFollowUpChange
+                    }
+                  >
+                    <option value="">
+                      Select Salesperson
+                    </option>
+
+                    {salespersons
+                      .filter(
+                        (sp) =>
+                          sp.status ===
+                          "Active"
+                      )
+                      .map((sp) => (
+                        <option
+                          key={sp._id}
+                          value={sp.name}
+                        >
+                          {sp.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                {/* DATE & TIME */}
+
+                <div className="form-group">
+                  <label>
+                    Follow-up Date & Time
+                  </label>
+
+                  <input
+                    type="datetime-local"
+                    name="dueAt"
+                    value={
+                      editingFollowUp.dueAt ||
+                      ""
+                    }
+                    onChange={
+                      handleEditFollowUpChange
+                    }
+                  />
+
+                  <small className="muted">
+                    Time is in Dubai local time
+                  </small>
+                </div>
+
+                {/* TYPE */}
+
+                <div className="form-group">
+                  <label>Type</label>
+
+                  <select
+                    name="type"
+                    value={
+                      editingFollowUp.type ||
+                      "Call"
+                    }
+                    onChange={
+                      handleEditFollowUpChange
+                    }
+                  >
+                    <option value="Call">
+                      Call
+                    </option>
+
+                    <option value="WhatsApp">
+                      WhatsApp
+                    </option>
+
+                    <option value="Email">
+                      Email
+                    </option>
+
+                    <option value="Visit">
+                      Visit
+                    </option>
+
+                    <option value="Meeting">
+                      Meeting
+                    </option>
+                  </select>
+                </div>
+
+                {/* STATUS */}
+
+                <div className="form-group">
+                  <label>Status</label>
+
+                  <select
+                    name="status"
+                    value={
+                      editingFollowUp.status ||
+                      "Pending"
+                    }
+                    onChange={
+                      handleEditFollowUpChange
+                    }
+                  >
+                    <option value="Pending">
+                      Pending
+                    </option>
+
+                    <option value="Completed">
+                      Completed
+                    </option>
+                  </select>
+                </div>
+
+                {/* PRIORITY */}
+
+                <div className="form-group">
+                  <label>Priority</label>
+
+                  <select
+                    name="priority"
+                    value={
+                      editingFollowUp.priority ||
+                      "Medium"
+                    }
+                    onChange={
+                      handleEditFollowUpChange
+                    }
+                  >
+                    <option value="Low">
+                      Low
+                    </option>
+
+                    <option value="Medium">
+                      Medium
+                    </option>
+
+                    <option value="High">
+                      High
+                    </option>
+
+                    <option value="Urgent">
+                      Urgent
+                    </option>
+                  </select>
+                </div>
+
+                {/* SUMMARY */}
+
+                <div className="form-group full-width">
+                  <label>Summary</label>
+
+                  <textarea
+                    name="summary"
+                    value={
+                      editingFollowUp.summary ||
+                      ""
+                    }
+                    onChange={
+                      handleEditFollowUpChange
+                    }
+                    rows="4"
+                    placeholder="Enter follow-up summary..."
+                  />
+                </div>
+
+                {/* NEXT ACTION */}
+
+                <div className="form-group full-width">
+                  <label>Next Action</label>
+
+                  <textarea
+                    name="nextAction"
+                    value={
+                      editingFollowUp.nextAction ||
+                      ""
+                    }
+                    onChange={
+                      handleEditFollowUpChange
+                    }
+                    rows="4"
+                    placeholder="Enter next action..."
+                  />
+                </div>
+
+              </div>
+
+            </div>
+
+            <div className="modal-footer">
+
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() =>
+                  setEditingFollowUp(null)
+                }
+                disabled={
+                  savingFollowUpEdit
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={saveFollowUpEdit}
+                disabled={
+                  savingFollowUpEdit ||
+                  !editingFollowUp.dueAt
+                }
+              >
+                {savingFollowUpEdit
+                  ? "Saving..."
+                  : "Save Changes"}
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
     </div>
   );
 }
 
-/* ========================================================
-   TASK TABLE
-   ======================================================== */
-
-function TaskTable({
-  tasks,
-  load
-}) {
-  const completeTask = async (id) => {
-    try {
-      await api.patch(
-        `/followups/${id}`,
-        {
-          status: 'Completed'
-        }
-      );
-
-      await load();
-    } catch (err) {
-      console.error(err);
-
-      alert(
-        err.response?.data?.message ||
-          'Unable to complete follow-up.'
-      );
-    }
-  };
-
-  return (
-    <table>
-
-      <thead>
-        <tr>
-          <th>Customer</th>
-          <th>Due Date / Time</th>
-          <th>Type</th>
-          <th>Priority</th>
-          <th>Salesperson</th>
-          <th>Summary</th>
-          <th>Next Action</th>
-          <th>Status</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-
-      <tbody>
-
-        {tasks.map((t) => (
-          <tr key={t._id}>
-
-            <td>
-              {t.customer?.name || '—'}
-            </td>
-
-            <td>
-              {fmt(t.dueAt)}
-            </td>
-
-            <td>
-              {t.type || '—'}
-            </td>
-
-            <td>
-              {t.priority || '—'}
-            </td>
-
-            <td>
-              {t.salesperson ||
-                t.customer
-                  ?.assignedSalesperson ||
-                '—'}
-            </td>
-
-            <td>
-              {t.summary || '—'}
-            </td>
-
-            <td>
-              {t.nextAction || '—'}
-            </td>
-
-            <td>
-              <span
-                className={
-                  t.status === 'Completed'
-                    ? 'status completed'
-                    : isOverdue(t.dueAt)
-                    ? 'status overdue'
-                    : 'status pending'
-                }
-              >
-                {t.status}
-              </span>
-            </td>
-
-            <td>
-
-              {t.status === 'Pending' && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    completeTask(t._id)
-                  }
-                >
-                  Complete
-                </button>
-              )}
-
-            </td>
-
-          </tr>
-        ))}
-
-        {tasks.length === 0 && (
-          <tr>
-            <td
-              colSpan="9"
-              style={{
-                textAlign: 'center'
-              }}
-            >
-              No follow-ups found.
-            </td>
-          </tr>
-        )}
-
-      </tbody>
-
-    </table>
-  );
-}
-
-/* ========================================================
-   SALESPERSON TABLE
-   ======================================================== */
-
-function SalespersonTable({
-  customers,
-  tasks,
-  salespersonMaster
-}) {
-  const todayDubai =
-    getDubaiToday();
-
-  const activityNames = [
-    ...customers.map(
-      (c) =>
-        c.assignedSalesperson
-    ),
-    ...tasks.map(
-      (t) =>
-        t.salesperson
-    )
-  ];
-
-  const names = [
-    ...new Set(
-      [
-        ...salespersonMaster
-          .filter(
-            (sp) =>
-              sp.status === 'Active'
-          )
-          .map(
-            (sp) => sp.name
-          ),
-        ...activityNames
-      ].filter(Boolean)
-    )
-  ];
-
-  return (
-    <table>
-
-      <thead>
-        <tr>
-          <th>Salesperson</th>
-          <th>Customers</th>
-          <th>Pending</th>
-          <th>Due Today</th>
-          <th>Overdue</th>
-          <th>Completed</th>
-          <th>Converted</th>
-        </tr>
-      </thead>
-
-      <tbody>
-
-        {names.map((name) => {
-
-          const cs =
-            customers.filter(
-              (c) =>
-                c.assignedSalesperson ===
-                name
-            );
-
-          const ts =
-            tasks.filter(
-              (t) =>
-                t.salesperson ===
-                  name ||
-                t.customer
-                  ?.assignedSalesperson ===
-                  name
-            );
-
-          const pending =
-            ts.filter(
-              (t) =>
-                t.status ===
-                'Pending'
-            );
-
-          const due =
-            pending.filter(
-              (t) =>
-                getDubaiDate(
-                  t.dueAt
-                ) === todayDubai
-            );
-
-          const overdue =
-            pending.filter(
-              (t) =>
-                isOverdue(
-                  t.dueAt
-                )
-            );
-
-          const completed =
-            ts.filter(
-              (t) =>
-                t.status ===
-                'Completed'
-            ).length;
-
-          const converted =
-            cs.filter(
-              (c) =>
-                c.status ===
-                'Converted'
-            ).length;
-
-          return (
-            <tr key={name}>
-
-              <td>
-                <strong>
-                  {name}
-                </strong>
-              </td>
-
-              <td>
-                {cs.length}
-              </td>
-
-              <td>
-                {pending.length}
-              </td>
-
-              <td>
-                {due.length}
-              </td>
-
-              <td>
-                <span className="status overdue">
-                  {overdue.length}
-                </span>
-              </td>
-
-              <td>
-                {completed}
-              </td>
-
-              <td>
-                {converted}
-              </td>
-
-            </tr>
-          );
-        })}
-
-        {names.length === 0 && (
-          <tr>
-            <td
-              colSpan="7"
-              style={{
-                textAlign: 'center'
-              }}
-            >
-              No salesperson activity
-              found.
-            </td>
-          </tr>
-        )}
-
-      </tbody>
-
-    </table>
-  );
-}
-
-/* ========================================================
-   START REACT
-   ======================================================== */
-
 createRoot(
-  document.getElementById('root')
+  document.getElementById("root")
 ).render(
-  <App />
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
 );
