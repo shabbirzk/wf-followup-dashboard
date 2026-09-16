@@ -225,6 +225,16 @@ function App() {
     useState(null);
 
   /* =====================================================
+     FOLLOW-UP CUSTOMER SEARCH
+  ===================================================== */
+
+  const [followUpCustomerSearch, setFollowUpCustomerSearch] =
+    useState("");
+
+  const [showFollowUpCustomerResults, setShowFollowUpCustomerResults] =
+    useState(false);
+
+  /* =====================================================
      FOLLOW-UP EDIT
   ===================================================== */
 
@@ -482,6 +492,40 @@ function App() {
   }, [
     customers,
     customerSearch
+  ]);
+
+  /* =====================================================
+     FOLLOW-UP CUSTOMER SEARCH RESULTS
+  ===================================================== */
+
+  const filteredFollowUpCustomers = useMemo(() => {
+    const search =
+      followUpCustomerSearch
+        .trim()
+        .toLowerCase();
+
+    if (!search) {
+      return customers;
+    }
+
+    return customers.filter(
+      (customer) =>
+        [
+          customer.customerCode,
+          customer.name,
+          customer.phone,
+          customer.whatsapp,
+          customer.email,
+          customer.location,
+          customer.assignedSalesperson
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(search)
+    );
+  }, [
+    customers,
+    followUpCustomerSearch
   ]);
 
   /* =====================================================
@@ -756,6 +800,73 @@ function App() {
       }
     };
 
+  const handleFollowUpCustomerSearch = (
+    e
+  ) => {
+    const value = e.target.value;
+
+    setFollowUpCustomerSearch(value);
+    setShowFollowUpCustomerResults(true);
+
+    /*
+      If the user changes the search text
+      after selecting a customer, clear the
+      stored customer selection so that the
+      displayed text and selected customer
+      cannot get out of sync.
+    */
+    if (
+      followUpForm.customer
+    ) {
+      const selectedCustomer =
+        customers.find(
+          (customer) =>
+            customer._id ===
+            followUpForm.customer
+        );
+
+      const selectedText =
+        selectedCustomer
+          ? `${selectedCustomer.customerCode} - ${selectedCustomer.name}`
+          : "";
+
+      if (value !== selectedText) {
+        setFollowUpForm(
+          (prev) => ({
+            ...prev,
+            customer: "",
+            salesperson: ""
+          })
+        );
+      }
+    }
+  };
+
+  const selectFollowUpCustomer = (
+    customer
+  ) => {
+    if (!customer) return;
+
+    setFollowUpForm(
+      (prev) => ({
+        ...prev,
+        customer:
+          customer._id,
+        salesperson:
+          customer.assignedSalesperson ||
+          ""
+      })
+    );
+
+    setFollowUpCustomerSearch(
+      `${customer.customerCode} - ${customer.name}`
+    );
+
+    setShowFollowUpCustomerResults(
+      false
+    );
+  };
+
   const saveFollowUp = async (
     e
   ) => {
@@ -837,6 +948,11 @@ function App() {
         summary: "",
         nextAction: ""
       });
+
+      setFollowUpCustomerSearch("");
+      setShowFollowUpCustomerResults(
+        false
+      );
 
       await loadData();
 
@@ -2267,49 +2383,114 @@ function App() {
                 }
               >
 
-                <div className="form-group">
+                {/* =================================================
+                    SEARCHABLE CUSTOMER
+                ================================================= */}
+
+                <div
+                  className="form-group"
+                  style={{
+                    position: "relative"
+                  }}
+                >
 
                   <label>
                     Customer
                   </label>
 
-                  <select
-                    name="customer"
+                  <input
+                    type="text"
                     value={
-                      followUpForm.customer
+                      followUpCustomerSearch
                     }
                     onChange={
-                      handleFollowUpChange
+                      handleFollowUpCustomerSearch
                     }
-                    required
-                  >
-
-                    <option value="">
-                      Select Customer
-                    </option>
-
-                    {customers.map(
-                      (customer) => (
-                        <option
-                          key={
-                            customer._id
-                          }
-                          value={
-                            customer._id
-                          }
-                        >
-                          {
-                            customer.customerCode
-                          }{" "}
-                          -{" "}
-                          {
-                            customer.name
-                          }
-                        </option>
+                    onFocus={() =>
+                      setShowFollowUpCustomerResults(
+                        true
                       )
-                    )}
+                    }
+                    placeholder="Search customer..."
+                    autoComplete="off"
+                    required={
+                      !followUpForm.customer
+                    }
+                  />
 
-                  </select>
+                  {followUpForm.customer && (
+                    <small className="muted">
+                      Selected:{" "}
+                      {customers.find(
+                        (customer) =>
+                          customer._id ===
+                          followUpForm.customer
+                      )?.customerCode || ""}
+                    </small>
+                  )}
+
+                  {showFollowUpCustomerResults && (
+                    <div
+                      className="customer-search-results"
+                      onMouseDown={(e) =>
+                        e.preventDefault()
+                      }
+                    >
+
+                      {filteredFollowUpCustomers.length ===
+                      0 ? (
+                        <div className="customer-search-empty">
+                          No customers found
+                        </div>
+                      ) : (
+                        filteredFollowUpCustomers.map(
+                          (customer) => (
+                            <div
+                              key={
+                                customer._id
+                              }
+                              className="customer-search-item"
+                              onClick={() =>
+                                selectFollowUpCustomer(
+                                  customer
+                                )
+                              }
+                            >
+
+                              <strong>
+                                {
+                                  customer.customerCode
+                                }{" "}
+                                -{" "}
+                                {
+                                  customer.name
+                                }
+                              </strong>
+
+                              <div className="muted">
+
+                                {customer.phone ||
+                                  ""}
+
+                                {customer.phone &&
+                                customer.assignedSalesperson
+                                  ? " • "
+                                  : ""}
+
+                                {
+                                  customer.assignedSalesperson ||
+                                  ""
+                                }
+
+                              </div>
+
+                            </div>
+                          )
+                        )
+                      )}
+
+                    </div>
+                  )}
 
                 </div>
 
