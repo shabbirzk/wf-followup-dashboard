@@ -5,7 +5,8 @@ import './style.css';
 
 const api = axios.create({
   baseURL:
-    import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+    import.meta.env.VITE_API_URL ||
+    'https://wf-followup-dashboard1.onrender.com/api'
 });
 
 const fmt = (d) => new Date(d).toLocaleString();
@@ -15,7 +16,21 @@ function App() {
   const [summary, setSummary] = useState({});
   const [customers, setCustomers] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [salespersonMaster, setSalespersonMaster] = useState([]);
   const [selectedSalesperson, setSelectedSalesperson] = useState('All');
+  const [error, setError] = useState('');
+
+  const [salespersonForm, setSalespersonForm] = useState({
+    name: '',
+    phone: '',
+    whatsapp: '',
+    email: '',
+    department: 'Sales',
+    location: '',
+    status: 'Active'
+  });
+
+  const [editingSalesperson, setEditingSalesperson] = useState(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -39,29 +54,40 @@ function App() {
   });
 
   const load = async () => {
-    const [a, b, c] = await Promise.all([
-      api.get('/summary'),
-      api.get('/customers'),
-      api.get('/followups')
-    ]);
+    try {
+      setError('');
 
-    setSummary(a.data);
-    setCustomers(b.data);
-    setTasks(c.data);
+      const [a, b, c, d] = await Promise.all([
+        api.get('/summary'),
+        api.get('/customers'),
+        api.get('/followups'),
+        api.get('/salespersons')
+      ]);
+
+      setSummary(a.data);
+      setCustomers(b.data);
+      setTasks(c.data);
+      setSalespersonMaster(d.data);
+    } catch (err) {
+      console.error(err);
+      setError(
+        err.response?.data?.message ||
+          'Unable to connect to the CRM server.'
+      );
+    }
   };
 
   useEffect(() => {
     load();
   }, []);
 
+  const activeSalespersons = salespersonMaster.filter(
+    (sp) => sp.status === 'Active'
+  );
+
   const salespersons = [
     'All',
-    ...new Set(
-      [
-        ...customers.map((c) => c.assignedSalesperson),
-        ...tasks.map((t) => t.salesperson)
-      ].filter(Boolean)
-    )
+    ...activeSalespersons.map((sp) => sp.name)
   ];
 
   const filteredCustomers =
@@ -93,7 +119,8 @@ function App() {
 
     today: filteredPendingTasks.filter(
       (t) =>
-        new Date(t.dueAt).toDateString() === today.toDateString()
+        new Date(t.dueAt).toDateString() ===
+        today.toDateString()
     ).length,
 
     overdue: filteredPendingTasks.filter(
@@ -109,7 +136,8 @@ function App() {
     ).length,
 
     quotationAmount: filteredCustomers.reduce(
-      (total, c) => total + Number(c.quotationAmount || 0),
+      (total, c) =>
+        total + Number(c.quotationAmount || 0),
       0
     )
   };
@@ -117,39 +145,125 @@ function App() {
   const addCustomer = async (e) => {
     e.preventDefault();
 
-    await api.post('/customers', {
-      ...form,
-      quotationAmount: Number(form.quotationAmount || 0)
-    });
+    try {
+      await api.post('/customers', {
+        ...form,
+        quotationAmount: Number(
+          form.quotationAmount || 0
+        )
+      });
 
-    setForm({
-      name: '',
-      phone: '',
-      whatsapp: '',
-      email: '',
-      location: '',
-      assignedSalesperson: '',
-      productInterest: '',
-      quotationAmount: 0
-    });
+      setForm({
+        name: '',
+        phone: '',
+        whatsapp: '',
+        email: '',
+        location: '',
+        assignedSalesperson: '',
+        productInterest: '',
+        quotationAmount: 0
+      });
 
-    load();
+      await load();
+    } catch (err) {
+      alert(
+        err.response?.data?.message ||
+          'Unable to add customer.'
+      );
+    }
   };
 
   const addTask = async (e) => {
     e.preventDefault();
 
-    await api.post('/followups', task);
+    try {
+      await api.post('/followups', task);
 
-    setTask({
-      ...task,
-      customer: '',
-      dueAt: '',
-      summary: '',
-      nextAction: ''
+      setTask({
+        ...task,
+        customer: '',
+        dueAt: '',
+        summary: '',
+        nextAction: ''
+      });
+
+      await load();
+    } catch (err) {
+      alert(
+        err.response?.data?.message ||
+          'Unable to schedule follow-up.'
+      );
+    }
+  };
+
+  const saveSalesperson = async (e) => {
+    e.preventDefault();
+
+    try {
+      if (editingSalesperson) {
+        await api.patch(
+          '/salespersons/' + editingSalesperson._id,
+          salespersonForm
+        );
+      } else {
+        await api.post(
+          '/salespersons',
+          salespersonForm
+        );
+      }
+
+      setSalespersonForm({
+        name: '',
+        phone: '',
+        whatsapp: '',
+        email: '',
+        department: 'Sales',
+        location: '',
+        status: 'Active'
+      });
+
+      setEditingSalesperson(null);
+
+      await load();
+    } catch (err) {
+      alert(
+        err.response?.data?.message ||
+          'Unable to save salesperson.'
+      );
+    }
+  };
+
+  const editSalesperson = (sp) => {
+    setEditingSalesperson(sp);
+
+    setSalespersonForm({
+      name: sp.name || '',
+      phone: sp.phone || '',
+      whatsapp: sp.whatsapp || '',
+      email: sp.email || '',
+      department: sp.department || 'Sales',
+      location: sp.location || '',
+      status: sp.status || 'Active'
     });
 
-    load();
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  };
+
+  const cancelSalespersonEdit = () => {
+    setEditingSalesperson(null);
+
+    setSalespersonForm({
+      name: '',
+      phone: '',
+      whatsapp: '',
+      email: '',
+      department: 'Sales',
+      location: '',
+      status: 'Active'
+    });
   };
 
   return (
@@ -159,10 +273,19 @@ function App() {
 
         <p className="muted">Customer CRM</p>
 
-        {['Dashboard', 'Customers', 'Follow-ups'].map((x) => (
+        {[
+          'Dashboard',
+          'Salesperson Master',
+          'Customers',
+          'Follow-ups'
+        ].map((x) => (
           <button
             key={x}
-            className={tab === x ? 'nav active' : 'nav'}
+            className={
+              tab === x
+                ? 'nav active'
+                : 'nav'
+            }
             onClick={() => setTab(x)}
           >
             {x}
@@ -180,8 +303,16 @@ function App() {
             </p>
           </div>
 
-          <button onClick={load}>Refresh</button>
+          <button onClick={load}>
+            Refresh
+          </button>
         </header>
+
+        {error && (
+          <section className="panel">
+            <strong>{error}</strong>
+          </section>
+        )}
 
         {tab === 'Dashboard' && (
           <>
@@ -191,33 +322,63 @@ function App() {
               <select
                 value={selectedSalesperson}
                 onChange={(e) =>
-                  setSelectedSalesperson(e.target.value)
+                  setSelectedSalesperson(
+                    e.target.value
+                  )
                 }
               >
-                {salespersons.map((salesperson) => (
-                  <option key={salesperson} value={salesperson}>
-                    {salesperson}
-                  </option>
-                ))}
+                {salespersons.map(
+                  (salesperson) => (
+                    <option
+                      key={salesperson}
+                      value={salesperson}
+                    >
+                      {salesperson}
+                    </option>
+                  )
+                )}
               </select>
             </section>
 
             <section className="cards">
               {[
-                ['Customers', filteredSummary.customers],
-                ['Pending', filteredSummary.pending],
-                ['Due Today', filteredSummary.today],
-                ['Overdue', filteredSummary.overdue],
-                ['Completed', filteredSummary.completed],
-                ['Converted', filteredSummary.converted],
+                [
+                  'Customers',
+                  filteredSummary.customers
+                ],
+                [
+                  'Pending',
+                  filteredSummary.pending
+                ],
+                [
+                  'Due Today',
+                  filteredSummary.today
+                ],
+                [
+                  'Overdue',
+                  filteredSummary.overdue
+                ],
+                [
+                  'Completed',
+                  filteredSummary.completed
+                ],
+                [
+                  'Converted',
+                  filteredSummary.converted
+                ],
                 [
                   'Quotation Value',
                   `AED ${filteredSummary.quotationAmount.toLocaleString()}`
                 ]
               ].map(([label, value]) => (
-                <div className="card" key={label}>
+                <div
+                  className="card"
+                  key={label}
+                >
                   <span>{label}</span>
-                  <strong>{value ?? 0}</strong>
+                  <strong>
+                    {value ?? 0}
+                  </strong>
                 </div>
               ))}
             </section>
@@ -232,24 +393,295 @@ function App() {
 
               <TaskTable
                 tasks={filteredTasks
-                  .filter((t) => t.status === 'Pending')
+                  .filter(
+                    (t) =>
+                      t.status ===
+                      'Pending'
+                  )
                   .slice(0, 8)}
                 load={load}
               />
             </section>
 
             <section className="panel">
-              <h2>Salesperson-wise details</h2>
+              <h2>
+                Salesperson-wise details
+              </h2>
 
               <p className="muted">
-                Assigned customers, pending tasks, overdue tasks and
+                Assigned customers, pending
+                tasks, overdue tasks and
                 completed follow-ups.
               </p>
 
               <SalespersonTable
                 customers={filteredCustomers}
                 tasks={filteredTasks}
+                salespersonMaster={
+                  salespersonMaster
+                }
               />
+            </section>
+          </>
+        )}
+
+        {tab === 'Salesperson Master' && (
+          <>
+            <section className="panel">
+              <h2>
+                {editingSalesperson
+                  ? 'Edit Salesperson'
+                  : 'Add Salesperson'}
+              </h2>
+
+              <form
+                onSubmit={saveSalesperson}
+                className="form"
+              >
+                <input
+                  required
+                  placeholder="Salesperson name"
+                  value={
+                    salespersonForm.name
+                  }
+                  onChange={(e) =>
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      name: e.target.value
+                    })
+                  }
+                />
+
+                <input
+                  placeholder="Phone"
+                  value={
+                    salespersonForm.phone
+                  }
+                  onChange={(e) =>
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      phone: e.target.value
+                    })
+                  }
+                />
+
+                <input
+                  placeholder="WhatsApp"
+                  value={
+                    salespersonForm.whatsapp
+                  }
+                  onChange={(e) =>
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      whatsapp:
+                        e.target.value
+                    })
+                  }
+                />
+
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={
+                    salespersonForm.email
+                  }
+                  onChange={(e) =>
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      email: e.target.value
+                    })
+                  }
+                />
+
+                <select
+                  value={
+                    salespersonForm.department
+                  }
+                  onChange={(e) =>
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      department:
+                        e.target.value
+                    })
+                  }
+                >
+                  <option value="Sales">
+                    Sales
+                  </option>
+                  <option value="Sales Admin">
+                    Sales Admin
+                  </option>
+                  <option value="Management">
+                    Management
+                  </option>
+                </select>
+
+                <input
+                  placeholder="Location"
+                  value={
+                    salespersonForm.location
+                  }
+                  onChange={(e) =>
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      location:
+                        e.target.value
+                    })
+                  }
+                />
+
+                <select
+                  value={
+                    salespersonForm.status
+                  }
+                  onChange={(e) =>
+                    setSalespersonForm({
+                      ...salespersonForm,
+                      status:
+                        e.target.value
+                    })
+                  }
+                >
+                  <option value="Active">
+                    Active
+                  </option>
+                  <option value="Inactive">
+                    Inactive
+                  </option>
+                </select>
+
+                <button type="submit">
+                  {editingSalesperson
+                    ? 'Update Salesperson'
+                    : 'Add Salesperson'}
+                </button>
+
+                {editingSalesperson && (
+                  <button
+                    type="button"
+                    onClick={
+                      cancelSalespersonEdit
+                    }
+                  >
+                    Cancel
+                  </button>
+                )}
+              </form>
+            </section>
+
+            <section className="panel">
+              <h2>Salesperson Master</h2>
+
+              <p className="muted">
+                Master list of all salespersons
+              </p>
+
+              <p>
+                <strong>
+                  {salespersonMaster.length}
+                </strong>{' '}
+                Salespersons
+              </p>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>WhatsApp</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Location</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {salespersonMaster.map(
+                    (sp) => (
+                      <tr key={sp._id}>
+                        <td>
+                          {sp.salespersonCode}
+                        </td>
+
+                        <td>
+                          <strong>
+                            {sp.name}
+                          </strong>
+                        </td>
+
+                        <td>
+                          {sp.phone || '—'}
+                        </td>
+
+                        <td>
+                          {sp.whatsapp || '—'}
+                        </td>
+
+                        <td>
+                          {sp.email || '—'}
+                        </td>
+
+                        <td>
+                          {sp.department ||
+                            '—'}
+                        </td>
+
+                        <td>
+                          {sp.location || '—'}
+                        </td>
+
+                        <td>
+                          <span
+                            className={
+                              'status ' +
+                              (
+                                sp.status ||
+                                'Active'
+                              ).toLowerCase()
+                            }
+                          >
+                            {sp.status ||
+                              'Active'}
+                          </span>
+                        </td>
+
+                        <td>
+                          <button
+                            onClick={() =>
+                              editSalesperson(
+                                sp
+                              )
+                            }
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  )}
+
+                  {salespersonMaster.length ===
+                    0 && (
+                    <tr>
+                      <td
+                        colSpan="9"
+                        style={{
+                          textAlign:
+                            'center'
+                        }}
+                      >
+                        No salespersons found.
+                        Use the Add Salesperson
+                        form above to create the
+                        first salesperson.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </section>
           </>
         )}
@@ -259,35 +691,130 @@ function App() {
             <section className="panel">
               <h2>Add customer</h2>
 
-              <form onSubmit={addCustomer} className="form">
-                {[
-                  ['name', 'Customer name'],
-                  ['phone', 'Phone'],
-                  ['whatsapp', 'WhatsApp'],
-                  ['email', 'Email'],
-                  ['location', 'Location'],
-                  ['assignedSalesperson', 'Salesperson'],
-                  ['productInterest', 'Product interest'],
-                  ['quotationAmount', 'Quotation amount']
-                ].map(([key, placeholder]) => (
-                  <input
-                    key={key}
-                    required={key === 'name'}
-                    type={
-                      key === 'quotationAmount' ? 'number' : 'text'
-                    }
-                    placeholder={placeholder}
-                    value={form[key]}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        [key]: e.target.value
-                      })
-                    }
-                  />
-                ))}
+              <form
+                onSubmit={addCustomer}
+                className="form"
+              >
+                <input
+                  required
+                  placeholder="Customer name"
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      name: e.target.value
+                    })
+                  }
+                />
 
-                <button type="submit">Add customer</button>
+                <input
+                  placeholder="Phone"
+                  value={form.phone}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      phone: e.target.value
+                    })
+                  }
+                />
+
+                <input
+                  placeholder="WhatsApp"
+                  value={form.whatsapp}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      whatsapp:
+                        e.target.value
+                    })
+                  }
+                />
+
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={form.email}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      email: e.target.value
+                    })
+                  }
+                />
+
+                <input
+                  placeholder="Location"
+                  value={form.location}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      location:
+                        e.target.value
+                    })
+                  }
+                />
+
+                <select
+                  value={
+                    form.assignedSalesperson
+                  }
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      assignedSalesperson:
+                        e.target.value
+                    })
+                  }
+                >
+                  <option value="">
+                    Select Salesperson
+                  </option>
+
+                  {activeSalespersons.map(
+                    (sp) => (
+                      <option
+                        key={sp._id}
+                        value={sp.name}
+                      >
+                        {sp.salespersonCode} —{' '}
+                        {sp.name}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                <input
+                  placeholder="Product interest"
+                  value={
+                    form.productInterest
+                  }
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      productInterest:
+                        e.target.value
+                    })
+                  }
+                />
+
+                <input
+                  type="number"
+                  placeholder="Quotation amount"
+                  value={
+                    form.quotationAmount
+                  }
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      quotationAmount:
+                        e.target.value
+                    })
+                  }
+                />
+
+                <button type="submit">
+                  Add customer
+                </button>
               </form>
             </section>
 
@@ -310,17 +837,30 @@ function App() {
                 <tbody>
                   {customers.map((c) => (
                     <tr key={c._id}>
-                      <td>{c.customerCode}</td>
+                      <td>
+                        {c.customerCode}
+                      </td>
+
                       <td>{c.name}</td>
+
                       <td>{c.phone}</td>
-                      <td>{c.productInterest}</td>
-                      <td>{c.assignedSalesperson}</td>
+
+                      <td>
+                        {c.productInterest}
+                      </td>
+
+                      <td>
+                        {c.assignedSalesperson}
+                      </td>
+
                       <td>
                         AED{' '}
                         {Number(
-                          c.quotationAmount || 0
+                          c.quotationAmount ||
+                            0
                         ).toLocaleString()}
                       </td>
+
                       <td>{c.status}</td>
                     </tr>
                   ))}
@@ -335,36 +875,72 @@ function App() {
             <section className="panel">
               <h2>Schedule follow-up</h2>
 
-              <form onSubmit={addTask} className="form">
+              <form
+                onSubmit={addTask}
+                className="form"
+              >
                 <select
                   required
                   value={task.customer}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const customer =
+                      customers.find(
+                        (c) =>
+                          c._id ===
+                          e.target.value
+                      );
+
                     setTask({
                       ...task,
-                      customer: e.target.value
-                    })
-                  }
+                      customer:
+                        e.target.value,
+                      salesperson:
+                        customer?.assignedSalesperson ||
+                        ''
+                    });
+                  }}
                 >
-                  <option value="">Select customer</option>
+                  <option value="">
+                    Select customer
+                  </option>
 
                   {customers.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.name} — {c.customerCode}
+                    <option
+                      key={c._id}
+                      value={c._id}
+                    >
+                      {c.name} —{' '}
+                      {c.customerCode}
                     </option>
                   ))}
                 </select>
 
-                <input
-                  placeholder="Salesperson"
+                <select
                   value={task.salesperson}
                   onChange={(e) =>
                     setTask({
                       ...task,
-                      salesperson: e.target.value
+                      salesperson:
+                        e.target.value
                     })
                   }
-                />
+                >
+                  <option value="">
+                    Select Salesperson
+                  </option>
+
+                  {activeSalespersons.map(
+                    (sp) => (
+                      <option
+                        key={sp._id}
+                        value={sp.name}
+                      >
+                        {sp.salespersonCode} —{' '}
+                        {sp.name}
+                      </option>
+                    )
+                  )}
+                </select>
 
                 <input
                   required
@@ -394,7 +970,10 @@ function App() {
                     'Visit',
                     'Quotation'
                   ].map((x) => (
-                    <option key={x} value={x}>
+                    <option
+                      key={x}
+                      value={x}
+                    >
                       {x}
                     </option>
                   ))}
@@ -405,12 +984,20 @@ function App() {
                   onChange={(e) =>
                     setTask({
                       ...task,
-                      priority: e.target.value
+                      priority:
+                        e.target.value
                     })
                   }
                 >
-                  {['Low', 'Medium', 'High'].map((x) => (
-                    <option key={x} value={x}>
+                  {[
+                    'Low',
+                    'Medium',
+                    'High'
+                  ].map((x) => (
+                    <option
+                      key={x}
+                      value={x}
+                    >
                       {x}
                     </option>
                   ))}
@@ -422,7 +1009,8 @@ function App() {
                   onChange={(e) =>
                     setTask({
                       ...task,
-                      summary: e.target.value
+                      summary:
+                        e.target.value
                     })
                   }
                 />
@@ -433,17 +1021,22 @@ function App() {
                   onChange={(e) =>
                     setTask({
                       ...task,
-                      nextAction: e.target.value
+                      nextAction:
+                        e.target.value
                     })
                   }
                 />
 
-                <button type="submit">Schedule</button>
+                <button type="submit">
+                  Schedule
+                </button>
               </form>
             </section>
 
             <section className="panel">
-              <h2>Follow-up history and tasks</h2>
+              <h2>
+                Follow-up history and tasks
+              </h2>
 
               <TaskTable
                 tasks={tasks}
@@ -474,19 +1067,26 @@ function TaskTable({ tasks, load }) {
       <tbody>
         {tasks.map((t) => (
           <tr key={t._id}>
-            <td>{t.customer?.name || '—'}</td>
+            <td>
+              {t.customer?.name || '—'}
+            </td>
+
             <td>{fmt(t.dueAt)}</td>
+
             <td>{t.type}</td>
+
             <td>
               {t.salesperson ||
-                t.customer?.assignedSalesperson ||
+                t.customer
+                  ?.assignedSalesperson ||
                 '—'}
             </td>
 
             <td>
               <span
                 className={
-                  'status ' + t.status.toLowerCase()
+                  'status ' +
+                  t.status.toLowerCase()
                 }
               >
                 {t.status}
@@ -498,9 +1098,11 @@ function TaskTable({ tasks, load }) {
                 <button
                   onClick={async () => {
                     await api.patch(
-                      '/followups/' + t._id,
+                      '/followups/' +
+                        t._id,
                       {
-                        status: 'Completed'
+                        status:
+                          'Completed'
                       }
                     );
 
@@ -518,12 +1120,30 @@ function TaskTable({ tasks, load }) {
   );
 }
 
-function SalespersonTable({ customers, tasks }) {
+function SalespersonTable({
+  customers,
+  tasks,
+  salespersonMaster
+}) {
+  const masterNames =
+    salespersonMaster.map(
+      (sp) => sp.name
+    );
+
+  const activityNames = [
+    ...customers.map(
+      (c) => c.assignedSalesperson
+    ),
+    ...tasks.map(
+      (t) => t.salesperson
+    )
+  ].filter(Boolean);
+
   const names = [
     ...new Set([
-      ...customers.map((c) => c.assignedSalesperson),
-      ...tasks.map((t) => t.salesperson)
-    ].filter(Boolean))
+      ...masterNames,
+      ...activityNames
+    ])
   ];
 
   const now = new Date();
@@ -545,35 +1165,48 @@ function SalespersonTable({ customers, tasks }) {
       <tbody>
         {names.map((name) => {
           const cs = customers.filter(
-            (c) => c.assignedSalesperson === name
+            (c) =>
+              c.assignedSalesperson ===
+              name
           );
 
           const ts = tasks.filter(
             (t) =>
               t.salesperson === name ||
-              t.customer?.assignedSalesperson === name
+              t.customer
+                ?.assignedSalesperson ===
+                name
           );
 
           const pending = ts.filter(
-            (t) => t.status === 'Pending'
+            (t) =>
+              t.status === 'Pending'
           );
 
           const due = pending.filter(
             (t) =>
-              new Date(t.dueAt).toDateString() ===
+              new Date(
+                t.dueAt
+              ).toDateString() ===
               now.toDateString()
           );
 
           const overdue = pending.filter(
-            (t) => new Date(t.dueAt) < now
+            (t) =>
+              new Date(t.dueAt) <
+              now
           );
 
           const completed = ts.filter(
-            (t) => t.status === 'Completed'
+            (t) =>
+              t.status ===
+              'Completed'
           ).length;
 
           const converted = cs.filter(
-            (c) => c.status === 'Converted'
+            (c) =>
+              c.status ===
+              'Converted'
           ).length;
 
           return (
@@ -583,7 +1216,9 @@ function SalespersonTable({ customers, tasks }) {
               </td>
 
               <td>{cs.length}</td>
+
               <td>{pending.length}</td>
+
               <td>{due.length}</td>
 
               <td>
@@ -597,7 +1232,9 @@ function SalespersonTable({ customers, tasks }) {
               <td>
                 {cs.length
                   ? Math.round(
-                      (converted / cs.length) * 100
+                      (converted /
+                        cs.length) *
+                        100
                     )
                   : 0}
                 %
