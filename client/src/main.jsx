@@ -2994,6 +2994,10 @@ const conversionPercentage =
                                         followUp
                                       )
                                     }
+                                    disabled={
+                                      followUp.status ===
+                                      "Completed"
+                                    }
                                   >
                                     Edit
                                   </button>
