@@ -36,7 +36,8 @@ const SalespersonSchema = new mongoose.Schema(
     },
 
     location: {
-      type: String
+      type: String,
+      trim: true
     },
 
     status: {
