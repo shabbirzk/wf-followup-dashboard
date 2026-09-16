@@ -8,20 +8,28 @@ const Salesperson = require('../models/Salesperson');
    SALESPERSON MASTER
 ========================= */
 
+// Get all salespersons
 router.get('/salespersons', async (req, res) => {
   try {
-    const salespersons = await Salesperson.find().sort({ name: 1 });
+    const salespersons = await Salesperson.find()
+      .sort({ name: 1 });
+
     res.json(salespersons);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      message: error.message
+    });
   }
 });
 
+// Add salesperson
 router.post('/salespersons', async (req, res) => {
   try {
     const count = await Salesperson.countDocuments();
 
-    const salespersonCode = `SP-${String(count + 1).padStart(4, '0')}`;
+    const salespersonCode = `SP-${String(
+      count + 1
+    ).padStart(4, '0')}`;
 
     const salesperson = await Salesperson.create({
       ...req.body,
@@ -30,20 +38,24 @@ router.post('/salespersons', async (req, res) => {
 
     res.status(201).json(salesperson);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({
+      message: error.message
+    });
   }
 });
 
+// Update salesperson
 router.patch('/salespersons/:id', async (req, res) => {
   try {
-    const salesperson = await Salesperson.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      {
-        new: true,
-        runValidators: true
-      }
-    );
+    const salesperson =
+      await Salesperson.findByIdAndUpdate(
+        req.params.id,
+        req.body,
+        {
+          new: true,
+          runValidators: true
+        }
+      );
 
     if (!salesperson) {
       return res.status(404).json({
@@ -53,7 +65,9 @@ router.patch('/salespersons/:id', async (req, res) => {
 
     res.json(salesperson);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({
+      message: error.message
+    });
   }
 });
 
@@ -61,19 +75,28 @@ router.patch('/salespersons/:id', async (req, res) => {
    CUSTOMER MASTER
 ========================= */
 
+// Get all customers
 router.get('/customers', async (req, res) => {
   try {
-    res.json(await Customer.find().sort({ createdAt: -1 }));
+    const customers = await Customer.find()
+      .sort({ createdAt: -1 });
+
+    res.json(customers);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      message: error.message
+    });
   }
 });
 
+// Add customer
 router.post('/customers', async (req, res) => {
   try {
     const count = await Customer.countDocuments();
 
-    const customerCode = `CUST-${String(count + 1).padStart(4, '0')}`;
+    const customerCode = `CUST-${String(
+      count + 1
+    ).padStart(4, '0')}`;
 
     const customer = await Customer.create({
       ...req.body,
@@ -82,20 +105,24 @@ router.post('/customers', async (req, res) => {
 
     res.status(201).json(customer);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({
+      message: error.message
+    });
   }
 });
 
+// Update customer
 router.patch('/customers/:id', async (req, res) => {
   try {
-    const customer = await Customer.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      {
-        new: true,
-        runValidators: true
-      }
-    );
+    const customer =
+      await Customer.findByIdAndUpdate(
+        req.params.id,
+        req.body,
+        {
+          new: true,
+          runValidators: true
+        }
+      );
 
     if (!customer) {
       return res.status(404).json({
@@ -105,7 +132,9 @@ router.patch('/customers/:id', async (req, res) => {
 
     res.json(customer);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({
+      message: error.message
+    });
   }
 });
 
@@ -113,47 +142,74 @@ router.patch('/customers/:id', async (req, res) => {
    FOLLOW-UPS
 ========================= */
 
+// Get all follow-ups
 router.get('/followups', async (req, res) => {
   try {
-    res.json(
-      await FollowUp.find()
-        .populate('customer')
-        .sort({ dueAt: 1 })
-    );
+    const followups = await FollowUp.find()
+      .populate('customer')
+      .sort({ dueAt: 1 });
+
+    res.json(followups);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      message: error.message
+    });
   }
 });
 
+// Add follow-up
 router.post('/followups', async (req, res) => {
   try {
-    const followup = await FollowUp.create(req.body);
+    let data = {
+      ...req.body
+    };
 
-    const populatedFollowup = await FollowUp.findById(followup._id)
-      .populate('customer');
+    /*
+      If salesperson is blank, automatically use
+      the assigned salesperson from the customer.
+    */
+    if (!data.salesperson && data.customer) {
+      const customer = await Customer.findById(data.customer);
+
+      if (customer) {
+        data.salesperson = customer.assignedSalesperson;
+      }
+    }
+
+    const followup = await FollowUp.create(data);
+
+    const populatedFollowup =
+      await FollowUp.findById(followup._id)
+        .populate('customer');
 
     res.status(201).json(populatedFollowup);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({
+      message: error.message
+    });
   }
 });
 
+// Update follow-up
 router.patch('/followups/:id', async (req, res) => {
   try {
-    const data = { ...req.body };
+    const data = {
+      ...req.body
+    };
 
     if (data.status === 'Completed') {
       data.completedAt = new Date();
     }
 
-    const followup = await FollowUp.findByIdAndUpdate(
-      req.params.id,
-      data,
-      {
-        new: true,
-        runValidators: true
-      }
-    ).populate('customer');
+    const followup =
+      await FollowUp.findByIdAndUpdate(
+        req.params.id,
+        data,
+        {
+          new: true,
+          runValidators: true
+        }
+      ).populate('customer');
 
     if (!followup) {
       return res.status(404).json({
@@ -163,7 +219,9 @@ router.patch('/followups/:id', async (req, res) => {
 
     res.json(followup);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    res.status(400).json({
+      message: error.message
+    });
   }
 });
 
@@ -187,17 +245,33 @@ router.get('/summary', async (req, res) => {
       converted
     ] = await Promise.all([
       Customer.countDocuments(),
-      FollowUp.countDocuments({ status: 'Pending' }),
+
+      FollowUp.countDocuments({
+        status: 'Pending'
+      }),
+
       FollowUp.countDocuments({
         status: 'Pending',
-        dueAt: { $gte: now, $lte: end }
+        dueAt: {
+          $gte: now,
+          $lte: end
+        }
       }),
+
       FollowUp.countDocuments({
         status: 'Pending',
-        dueAt: { $lt: now }
+        dueAt: {
+          $lt: now
+        }
       }),
-      FollowUp.countDocuments({ status: 'Completed' }),
-      Customer.countDocuments({ status: 'Converted' })
+
+      FollowUp.countDocuments({
+        status: 'Completed'
+      }),
+
+      Customer.countDocuments({
+        status: 'Converted'
+      })
     ]);
 
     res.json({
@@ -209,7 +283,9 @@ router.get('/summary', async (req, res) => {
       converted
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      message: error.message
+    });
   }
 });
 
