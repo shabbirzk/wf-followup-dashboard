@@ -15,6 +15,7 @@ function App() {
   const [summary, setSummary] = useState({});
   const [customers, setCustomers] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [selectedSalesperson, setSelectedSalesperson] = useState('All');
 
   const [form, setForm] = useState({
     name: '',
@@ -53,10 +54,73 @@ function App() {
     load();
   }, []);
 
+  const salespersons = [
+    'All',
+    ...new Set(
+      [
+        ...customers.map((c) => c.assignedSalesperson),
+        ...tasks.map((t) => t.salesperson)
+      ].filter(Boolean)
+    )
+  ];
+
+  const filteredCustomers =
+    selectedSalesperson === 'All'
+      ? customers
+      : customers.filter(
+          (c) => c.assignedSalesperson === selectedSalesperson
+        );
+
+  const filteredTasks =
+    selectedSalesperson === 'All'
+      ? tasks
+      : tasks.filter(
+          (t) =>
+            t.salesperson === selectedSalesperson ||
+            t.customer?.assignedSalesperson === selectedSalesperson
+        );
+
+  const today = new Date();
+
+  const filteredPendingTasks = filteredTasks.filter(
+    (t) => t.status === 'Pending'
+  );
+
+  const filteredSummary = {
+    customers: filteredCustomers.length,
+
+    pending: filteredPendingTasks.length,
+
+    today: filteredPendingTasks.filter(
+      (t) =>
+        new Date(t.dueAt).toDateString() === today.toDateString()
+    ).length,
+
+    overdue: filteredPendingTasks.filter(
+      (t) => new Date(t.dueAt) < today
+    ).length,
+
+    completed: filteredTasks.filter(
+      (t) => t.status === 'Completed'
+    ).length,
+
+    converted: filteredCustomers.filter(
+      (c) => c.status === 'Converted'
+    ).length,
+
+    quotationAmount: filteredCustomers.reduce(
+      (total, c) => total + Number(c.quotationAmount || 0),
+      0
+    )
+  };
+
   const addCustomer = async (e) => {
     e.preventDefault();
 
-    await api.post('/customers', form);
+    await api.post('/customers', {
+      ...form,
+      quotationAmount: Number(form.quotationAmount || 0)
+    });
 
     setForm({
       name: '',
@@ -121,27 +185,53 @@ function App() {
 
         {tab === 'Dashboard' && (
           <>
+            <section className="panel">
+              <h2>Salesperson Filter</h2>
+
+              <select
+                value={selectedSalesperson}
+                onChange={(e) =>
+                  setSelectedSalesperson(e.target.value)
+                }
+              >
+                {salespersons.map((salesperson) => (
+                  <option key={salesperson} value={salesperson}>
+                    {salesperson}
+                  </option>
+                ))}
+              </select>
+            </section>
+
             <section className="cards">
               {[
-                ['Customers', summary.customers],
-                ['Pending', summary.pending],
-                ['Due Today', summary.today],
-                ['Overdue', summary.overdue],
-                ['Completed', summary.completed],
-                ['Converted', summary.converted]
-              ].map(([a, b]) => (
-                <div className="card" key={a}>
-                  <span>{a}</span>
-                  <strong>{b ?? 0}</strong>
+                ['Customers', filteredSummary.customers],
+                ['Pending', filteredSummary.pending],
+                ['Due Today', filteredSummary.today],
+                ['Overdue', filteredSummary.overdue],
+                ['Completed', filteredSummary.completed],
+                ['Converted', filteredSummary.converted],
+                [
+                  'Quotation Value',
+                  `AED ${filteredSummary.quotationAmount.toLocaleString()}`
+                ]
+              ].map(([label, value]) => (
+                <div className="card" key={label}>
+                  <span>{label}</span>
+                  <strong>{value ?? 0}</strong>
                 </div>
               ))}
             </section>
 
             <section className="panel">
-              <h2>Priority follow-ups</h2>
+              <h2>
+                Priority follow-ups
+                {selectedSalesperson !== 'All'
+                  ? ` - ${selectedSalesperson}`
+                  : ''}
+              </h2>
 
               <TaskTable
-                tasks={tasks
+                tasks={filteredTasks
                   .filter((t) => t.status === 'Pending')
                   .slice(0, 8)}
                 load={load}
@@ -157,8 +247,8 @@ function App() {
               </p>
 
               <SalespersonTable
-                customers={customers}
-                tasks={tasks}
+                customers={filteredCustomers}
+                tasks={filteredTasks}
               />
             </section>
           </>
@@ -179,23 +269,25 @@ function App() {
                   ['assignedSalesperson', 'Salesperson'],
                   ['productInterest', 'Product interest'],
                   ['quotationAmount', 'Quotation amount']
-                ].map(([k, p]) => (
+                ].map(([key, placeholder]) => (
                   <input
-                    key={k}
-                    required={k === 'name'}
-                    type={k === 'quotationAmount' ? 'number' : 'text'}
-                    placeholder={p}
-                    value={form[k]}
+                    key={key}
+                    required={key === 'name'}
+                    type={
+                      key === 'quotationAmount' ? 'number' : 'text'
+                    }
+                    placeholder={placeholder}
+                    value={form[key]}
                     onChange={(e) =>
                       setForm({
                         ...form,
-                        [k]: e.target.value
+                        [key]: e.target.value
                       })
                     }
                   />
                 ))}
 
-                <button>Add customer</button>
+                <button type="submit">Add customer</button>
               </form>
             </section>
 
@@ -210,6 +302,7 @@ function App() {
                     <th>Contact</th>
                     <th>Product</th>
                     <th>Salesperson</th>
+                    <th>Quotation Amount</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -222,6 +315,12 @@ function App() {
                       <td>{c.phone}</td>
                       <td>{c.productInterest}</td>
                       <td>{c.assignedSalesperson}</td>
+                      <td>
+                        AED{' '}
+                        {Number(
+                          c.quotationAmount || 0
+                        ).toLocaleString()}
+                      </td>
                       <td>{c.status}</td>
                     </tr>
                   ))}
@@ -295,7 +394,9 @@ function App() {
                     'Visit',
                     'Quotation'
                   ].map((x) => (
-                    <option key={x}>{x}</option>
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
                   ))}
                 </select>
 
@@ -309,7 +410,9 @@ function App() {
                   }
                 >
                   {['Low', 'Medium', 'High'].map((x) => (
-                    <option key={x}>{x}</option>
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
                   ))}
                 </select>
 
@@ -335,7 +438,7 @@ function App() {
                   }
                 />
 
-                <button>Schedule</button>
+                <button type="submit">Schedule</button>
               </form>
             </section>
 
@@ -372,12 +475,13 @@ function TaskTable({ tasks, load }) {
         {tasks.map((t) => (
           <tr key={t._id}>
             <td>{t.customer?.name || '—'}</td>
-
             <td>{fmt(t.dueAt)}</td>
-
             <td>{t.type}</td>
-
-            <td>{t.salesperson}</td>
+            <td>
+              {t.salesperson ||
+                t.customer?.assignedSalesperson ||
+                '—'}
+            </td>
 
             <td>
               <span
@@ -417,12 +521,8 @@ function TaskTable({ tasks, load }) {
 function SalespersonTable({ customers, tasks }) {
   const names = [
     ...new Set([
-      ...customers.map(
-        (c) => c.assignedSalesperson
-      ),
-      ...tasks.map(
-        (t) => t.salesperson
-      )
+      ...customers.map((c) => c.assignedSalesperson),
+      ...tasks.map((t) => t.salesperson)
     ].filter(Boolean))
   ];
 
@@ -445,18 +545,17 @@ function SalespersonTable({ customers, tasks }) {
       <tbody>
         {names.map((name) => {
           const cs = customers.filter(
-            (c) =>
-              c.assignedSalesperson === name
+            (c) => c.assignedSalesperson === name
           );
 
           const ts = tasks.filter(
             (t) =>
-              t.salesperson === name
+              t.salesperson === name ||
+              t.customer?.assignedSalesperson === name
           );
 
           const pending = ts.filter(
-            (t) =>
-              t.status === 'Pending'
+            (t) => t.status === 'Pending'
           );
 
           const due = pending.filter(
@@ -466,18 +565,15 @@ function SalespersonTable({ customers, tasks }) {
           );
 
           const overdue = pending.filter(
-            (t) =>
-              new Date(t.dueAt) < now
+            (t) => new Date(t.dueAt) < now
           );
 
           const completed = ts.filter(
-            (t) =>
-              t.status === 'Completed'
+            (t) => t.status === 'Completed'
           ).length;
 
           const converted = cs.filter(
-            (c) =>
-              c.status === 'Converted'
+            (c) => c.status === 'Converted'
           ).length;
 
           return (
@@ -487,9 +583,7 @@ function SalespersonTable({ customers, tasks }) {
               </td>
 
               <td>{cs.length}</td>
-
               <td>{pending.length}</td>
-
               <td>{due.length}</td>
 
               <td>
