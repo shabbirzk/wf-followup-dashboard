@@ -195,6 +195,7 @@ function App() {
   const [salespersonForm, setSalespersonForm] =
     useState({
       name: "",
+      phone: "",
       location: "",
       status: "Active"
     });
@@ -692,6 +693,7 @@ function App() {
 
       setSalespersonForm({
         name: "",
+        phone: "",
         location: "",
         status: "Active"
       });
@@ -1492,13 +1494,37 @@ function App() {
 
                 </div>
 
+                {/* PHONE */}
+
+                <div className="form-group">
+
+                  <label>
+                    Phone
+                  </label>
+
+                  <input
+                    name="phone"
+                    value={
+                      salespersonForm.phone
+                    }
+                    onChange={
+                      handleSalespersonChange
+                    }
+                    placeholder="Phone number"
+                  />
+
+                </div>
+
+                {/* EDITABLE LOCATION COMBO */}
+
                 <div className="form-group">
 
                   <label>
                     Location
                   </label>
 
-                  <select
+                  <input
+                    list="salesperson-locations"
                     name="location"
                     value={
                       salespersonForm.location
@@ -1506,25 +1532,18 @@ function App() {
                     onChange={
                       handleSalespersonChange
                     }
-                  >
+                    placeholder="Select or enter location"
+                  />
 
-                    <option value="">
-                      Select Location
-                    </option>
+                  <datalist id="salesperson-locations">
 
-                    <option value="Natuzzi Zabeel">
-                      Natuzzi Zabeel
-                    </option>
+                    <option value="Natuzzi Zabeel" />
 
-                    <option value="Natuzzi Mega Store">
-                      Natuzzi Mega Store
-                    </option>
+                    <option value="Natuzzi Mega Store" />
 
-                    <option value="ADH Galleria">
-                      ADH Galleria
-                    </option>
+                    <option value="ADH Galleria" />
 
-                  </select>
+                  </datalist>
 
                 </div>
 
@@ -1606,6 +1625,10 @@ function App() {
                       </th>
 
                       <th>
+                        Phone
+                      </th>
+
+                      <th>
                         Location
                       </th>
 
@@ -1635,6 +1658,13 @@ function App() {
                           <td>
                             {
                               salesperson.name
+                            }
+                          </td>
+
+                          <td>
+                            {
+                              salesperson.phone ||
+                              "-"
                             }
                           </td>
 
