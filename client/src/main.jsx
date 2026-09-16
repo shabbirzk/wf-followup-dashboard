@@ -50,7 +50,7 @@ const dubaiLocalToISO = (localValue) => {
   const [year, month, day] = datePart.split("-").map(Number);
   const [hour, minute] = timePart.split(":").map(Number);
 
-  // Dubai is UTC+4
+  // Dubai = UTC+4
   const utcMillis = Date.UTC(
     year,
     month - 1,
@@ -82,9 +82,11 @@ const isoToDubaiLocal = (value) => {
   const getPart = (type) =>
     parts.find((p) => p.type === type)?.value || "";
 
-  return `${getPart("year")}-${getPart("month")}-${getPart(
-    "day"
-  )}T${getPart("hour")}:${getPart("minute")}`;
+  return `${getPart("year")}-${getPart(
+    "month"
+  )}-${getPart("day")}T${getPart(
+    "hour"
+  )}:${getPart("minute")}`;
 };
 
 const isOverdue = (value) => {
@@ -109,9 +111,15 @@ const Badge = ({ children, type = "" }) => (
 const StatCard = ({ title, value, subtitle }) => (
   <div className="stat-card">
     <div className="stat-title">{title}</div>
-    <div className="stat-value">{value}</div>
+
+    <div className="stat-value">
+      {value}
+    </div>
+
     {subtitle && (
-      <div className="stat-subtitle">{subtitle}</div>
+      <div className="stat-subtitle">
+        {subtitle}
+      </div>
     )}
   </div>
 );
@@ -121,7 +129,12 @@ const StatCard = ({ title, value, subtitle }) => (
 ========================================================= */
 
 function App() {
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] =
+    useState("dashboard");
+
+  /* =====================================================
+     SUMMARY
+  ===================================================== */
 
   const [summary, setSummary] = useState({
     customers: 0,
@@ -133,28 +146,44 @@ function App() {
     quotationAmount: 0
   });
 
-  const [customers, setCustomers] = useState([]);
-  const [followUps, setFollowUps] = useState([]);
-  const [salespersons, setSalespersons] = useState([]);
+  const [customers, setCustomers] =
+    useState([]);
 
-  const [loading, setLoading] = useState(true);
+  const [followUps, setFollowUps] =
+    useState([]);
+
+  const [salespersons, setSalespersons] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  /* =====================================================
+     DASHBOARD SALESPERSON FILTER
+  ===================================================== */
+
+  const [
+    dashboardSalespersonFilter,
+    setDashboardSalespersonFilter
+  ] = useState("All");
 
   /* =====================================================
      CUSTOMER FORM
   ===================================================== */
 
-  const [customerForm, setCustomerForm] = useState({
-    name: "",
-    phone: "",
-    whatsapp: "",
-    email: "",
-    location: "",
-    source: "Walk-in",
-    assignedSalesperson: "",
-    status: "New",
-    productInterest: "",
-    quotationAmount: ""
-  });
+  const [customerForm, setCustomerForm] =
+    useState({
+      name: "",
+      phone: "",
+      whatsapp: "",
+      email: "",
+      location: "",
+      source: "Walk-in",
+      assignedSalesperson: "",
+      status: "New",
+      productInterest: "",
+      quotationAmount: ""
+    });
 
   const [savingCustomer, setSavingCustomer] =
     useState(false);
@@ -163,11 +192,12 @@ function App() {
      SALESPERSON FORM
   ===================================================== */
 
-  const [salespersonForm, setSalespersonForm] = useState({
-    name: "",
-    location: "",
-    status: "Active"
-  });
+  const [salespersonForm, setSalespersonForm] =
+    useState({
+      name: "",
+      location: "",
+      status: "Active"
+    });
 
   const [savingSalesperson, setSavingSalesperson] =
     useState(false);
@@ -176,15 +206,16 @@ function App() {
      FOLLOW-UP FORM
   ===================================================== */
 
-  const [followUpForm, setFollowUpForm] = useState({
-    customer: "",
-    salesperson: "",
-    dueAt: "",
-    type: "Call",
-    priority: "Medium",
-    summary: "",
-    nextAction: ""
-  });
+  const [followUpForm, setFollowUpForm] =
+    useState({
+      customer: "",
+      salesperson: "",
+      dueAt: "",
+      type: "Call",
+      priority: "Medium",
+      summary: "",
+      nextAction: ""
+    });
 
   const [savingFollowUp, setSavingFollowUp] =
     useState(false);
@@ -212,11 +243,15 @@ function App() {
   const [followUpSearch, setFollowUpSearch] =
     useState("");
 
-  const [followUpStatusFilter, setFollowUpStatusFilter] =
-    useState("All");
+  const [
+    followUpStatusFilter,
+    setFollowUpStatusFilter
+  ] = useState("All");
 
-  const [followUpSalespersonFilter, setFollowUpSalespersonFilter] =
-    useState("All");
+  const [
+    followUpSalespersonFilter,
+    setFollowUpSalespersonFilter
+  ] = useState("All");
 
   /* =====================================================
      LOAD DATA
@@ -250,11 +285,22 @@ function App() {
         }
       );
 
-      setCustomers(customersResponse.data || []);
-      setFollowUps(followUpsResponse.data || []);
-      setSalespersons(salespersonsResponse.data || []);
+      setCustomers(
+        customersResponse.data || []
+      );
+
+      setFollowUps(
+        followUpsResponse.data || []
+      );
+
+      setSalespersons(
+        salespersonsResponse.data || []
+      );
     } catch (error) {
-      console.error("Load data error:", error);
+      console.error(
+        "Load data error:",
+        error
+      );
 
       alert(
         error.response?.data?.message ||
@@ -271,141 +317,252 @@ function App() {
 
   /* =====================================================
      DASHBOARD CALCULATIONS
-     Uses Dubai local date
+     SALESPERSON WISE
   ===================================================== */
 
   const dashboardStats = useMemo(() => {
     const today = getDubaiToday();
 
-    const pendingFollowUps = followUps.filter(
-      (f) => f.status === "Pending"
-    );
+    const selectedSalesperson =
+      normalizeName(
+        dashboardSalespersonFilter
+      );
 
-    const todayFollowUps = pendingFollowUps.filter(
-      (f) => getDubaiDate(f.dueAt) === today
-    );
+    const matchesSalesperson = (name) => {
+      if (
+        dashboardSalespersonFilter ===
+        "All"
+      ) {
+        return true;
+      }
 
-    const overdueFollowUps = pendingFollowUps.filter(
-      (f) => isOverdue(f.dueAt)
-    );
+      return (
+        normalizeName(name) ===
+        selectedSalesperson
+      );
+    };
 
-    const completedFollowUps = followUps.filter(
-      (f) => f.status === "Completed"
-    );
+    /* CUSTOMER FILTER */
 
-    const convertedCustomers = customers.filter(
-      (c) => c.status === "Converted"
-    );
+    const filteredDashboardCustomers =
+      customers.filter((customer) =>
+        matchesSalesperson(
+          customer.assignedSalesperson
+        )
+      );
 
-    const quotationValue = customers.reduce(
-      (total, customer) =>
-        total + Number(customer.quotationAmount || 0),
-      0
-    );
+    /* FOLLOW-UP FILTER */
+
+    const filteredDashboardFollowUps =
+      followUps.filter((followUp) =>
+        matchesSalesperson(
+          followUp.salesperson
+        )
+      );
+
+    /* PENDING */
+
+    const pendingFollowUps =
+      filteredDashboardFollowUps.filter(
+        (followUp) =>
+          followUp.status === "Pending"
+      );
+
+    /* TODAY */
+
+    const todayFollowUps =
+      pendingFollowUps.filter(
+        (followUp) =>
+          getDubaiDate(
+            followUp.dueAt
+          ) === today
+      );
+
+    /* OVERDUE */
+
+    const overdueFollowUps =
+      pendingFollowUps.filter(
+        (followUp) =>
+          isOverdue(
+            followUp.dueAt
+          )
+      );
+
+    /* COMPLETED */
+
+    const completedFollowUps =
+      filteredDashboardFollowUps.filter(
+        (followUp) =>
+          followUp.status ===
+          "Completed"
+      );
+
+    /* CONVERTED */
+
+    const convertedCustomers =
+      filteredDashboardCustomers.filter(
+        (customer) =>
+          customer.status ===
+          "Converted"
+      );
+
+    /* QUOTATION */
+
+    const quotationValue =
+      filteredDashboardCustomers.reduce(
+        (total, customer) =>
+          total +
+          Number(
+            customer.quotationAmount ||
+              0
+          ),
+        0
+      );
 
     return {
-      customers: customers.length,
-      pending: pendingFollowUps.length,
-      today: todayFollowUps.length,
-      overdue: overdueFollowUps.length,
-      completed: completedFollowUps.length,
-      converted: convertedCustomers.length,
-      quotationAmount: quotationValue
+      customers:
+        filteredDashboardCustomers.length,
+
+      pending:
+        pendingFollowUps.length,
+
+      today:
+        todayFollowUps.length,
+
+      overdue:
+        overdueFollowUps.length,
+
+      completed:
+        completedFollowUps.length,
+
+      converted:
+        convertedCustomers.length,
+
+      quotationAmount:
+        quotationValue
     };
-  }, [customers, followUps]);
+  }, [
+    customers,
+    followUps,
+    dashboardSalespersonFilter
+  ]);
 
   /* =====================================================
      CUSTOMER FILTER
   ===================================================== */
 
   const filteredCustomers = useMemo(() => {
-    const search = customerSearch
-      .trim()
-      .toLowerCase();
+    const search =
+      customerSearch
+        .trim()
+        .toLowerCase();
 
-    if (!search) return customers;
+    if (!search) {
+      return customers;
+    }
 
-    return customers.filter((customer) =>
-      [
-        customer.customerCode,
-        customer.name,
-        customer.phone,
-        customer.whatsapp,
-        customer.email,
-        customer.location,
-        customer.assignedSalesperson,
-        customer.productInterest,
-        customer.status
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(search)
+    return customers.filter(
+      (customer) =>
+        [
+          customer.customerCode,
+          customer.name,
+          customer.phone,
+          customer.whatsapp,
+          customer.email,
+          customer.location,
+          customer.assignedSalesperson,
+          customer.productInterest,
+          customer.status
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(search)
     );
-  }, [customers, customerSearch]);
+  }, [
+    customers,
+    customerSearch
+  ]);
 
   /* =====================================================
      FOLLOW-UP FILTER
   ===================================================== */
 
-  const filteredFollowUps = useMemo(() => {
-    const search = followUpSearch
-      .trim()
-      .toLowerCase();
+  const filteredFollowUps =
+    useMemo(() => {
+      const search =
+        followUpSearch
+          .trim()
+          .toLowerCase();
 
-    return followUps.filter((followUp) => {
-      const customerName =
-        followUp.customer?.name || "";
+      return followUps.filter(
+        (followUp) => {
+          const customerName =
+            followUp.customer?.name ||
+            "";
 
-      const customerCode =
-        followUp.customer?.customerCode || "";
+          const customerCode =
+            followUp.customer
+              ?.customerCode || "";
 
-      const salesperson =
-        followUp.salesperson || "";
+          const salesperson =
+            followUp.salesperson ||
+            "";
 
-      const matchesSearch =
-        !search ||
-        [
-          customerName,
-          customerCode,
-          salesperson,
-          followUp.type,
-          followUp.priority,
-          followUp.status,
-          followUp.summary,
-          followUp.nextAction
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(search);
+          const matchesSearch =
+            !search ||
+            [
+              customerName,
+              customerCode,
+              salesperson,
+              followUp.type,
+              followUp.priority,
+              followUp.status,
+              followUp.summary,
+              followUp.nextAction
+            ]
+              .join(" ")
+              .toLowerCase()
+              .includes(search);
 
-      const matchesStatus =
-        followUpStatusFilter === "All" ||
-        followUp.status === followUpStatusFilter;
+          const matchesStatus =
+            followUpStatusFilter ===
+              "All" ||
+            followUp.status ===
+              followUpStatusFilter;
 
-      const matchesSalesperson =
-        followUpSalespersonFilter === "All" ||
-        normalizeName(followUp.salesperson) ===
-          normalizeName(followUpSalespersonFilter);
+          const matchesSalesperson =
+            followUpSalespersonFilter ===
+              "All" ||
+            normalizeName(
+              followUp.salesperson
+            ) ===
+              normalizeName(
+                followUpSalespersonFilter
+              );
 
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesSalesperson
+          return (
+            matchesSearch &&
+            matchesStatus &&
+            matchesSalesperson
+          );
+        }
       );
-    });
-  }, [
-    followUps,
-    followUpSearch,
-    followUpStatusFilter,
-    followUpSalespersonFilter
-  ]);
+    }, [
+      followUps,
+      followUpSearch,
+      followUpStatusFilter,
+      followUpSalespersonFilter
+    ]);
 
   /* =====================================================
      CUSTOMER FORM HANDLERS
   ===================================================== */
 
   const handleCustomerChange = (e) => {
-    const { name, value } = e.target;
+    const {
+      name,
+      value
+    } = e.target;
 
     setCustomerForm((prev) => ({
       ...prev,
@@ -416,8 +573,12 @@ function App() {
   const saveCustomer = async (e) => {
     e.preventDefault();
 
-    if (!customerForm.name.trim()) {
-      alert("Customer name is required.");
+    if (
+      !customerForm.name.trim()
+    ) {
+      alert(
+        "Customer name is required."
+      );
       return;
     }
 
@@ -426,14 +587,19 @@ function App() {
 
       const payload = {
         ...customerForm,
+
         quotationAmount:
-          Number(customerForm.quotationAmount || 0)
+          Number(
+            customerForm.quotationAmount ||
+              0
+          )
       };
 
-      const response = await axios.post(
-        `${API}/customers`,
-        payload
-      );
+      const response =
+        await axios.post(
+          `${API}/customers`,
+          payload
+        );
 
       setCustomers((prev) => [
         response.data,
@@ -455,12 +621,15 @@ function App() {
 
       await loadData();
 
-      alert("Customer saved successfully.");
+      alert(
+        "Customer saved successfully."
+      );
     } catch (error) {
       console.error(error);
 
       alert(
-        error.response?.data?.message ||
+        error.response?.data
+          ?.message ||
           "Failed to save customer."
       );
     } finally {
@@ -472,36 +641,52 @@ function App() {
      SALESPERSON HANDLERS
   ===================================================== */
 
-  const handleSalespersonChange = (e) => {
-    const { name, value } = e.target;
+  const handleSalespersonChange =
+    (e) => {
+      const {
+        name,
+        value
+      } = e.target;
 
-    setSalespersonForm((prev) => ({
-      ...prev,
-      [name]: value
-    }));
-  };
+      setSalespersonForm((prev) => ({
+        ...prev,
+        [name]: value
+      }));
+    };
 
-  const saveSalesperson = async (e) => {
+  const saveSalesperson = async (
+    e
+  ) => {
     e.preventDefault();
 
-    if (!salespersonForm.name.trim()) {
-      alert("Salesperson name is required.");
+    if (
+      !salespersonForm.name.trim()
+    ) {
+      alert(
+        "Salesperson name is required."
+      );
       return;
     }
 
     try {
       setSavingSalesperson(true);
 
-      const response = await axios.post(
-        `${API}/salespersons`,
-        salespersonForm
-      );
+      const response =
+        await axios.post(
+          `${API}/salespersons`,
+          salespersonForm
+        );
 
       setSalespersons((prev) =>
-        [...prev, response.data].sort((a, b) =>
-          String(a.name || "").localeCompare(
-            String(b.name || "")
-          )
+        [...prev, response.data].sort(
+          (a, b) =>
+            String(
+              a.name || ""
+            ).localeCompare(
+              String(
+                b.name || ""
+              )
+            )
         )
       );
 
@@ -511,12 +696,15 @@ function App() {
         status: "Active"
       });
 
-      alert("Salesperson saved successfully.");
+      alert(
+        "Salesperson saved successfully."
+      );
     } catch (error) {
       console.error(error);
 
       alert(
-        error.response?.data?.message ||
+        error.response?.data
+          ?.message ||
           "Failed to save salesperson."
       );
     } finally {
@@ -528,45 +716,64 @@ function App() {
      FOLLOW-UP FORM HANDLERS
   ===================================================== */
 
-  const handleFollowUpChange = (e) => {
-    const { name, value } = e.target;
+  const handleFollowUpChange =
+    (e) => {
+      const {
+        name,
+        value
+      } = e.target;
 
-    setFollowUpForm((prev) => ({
-      ...prev,
-      [name]: value
-    }));
-
-    if (
-      name === "customer" &&
-      value
-    ) {
-      const selectedCustomer = customers.find(
-        (customer) => customer._id === value
-      );
+      setFollowUpForm((prev) => ({
+        ...prev,
+        [name]: value
+      }));
 
       if (
-        selectedCustomer?.assignedSalesperson
+        name === "customer" &&
+        value
       ) {
-        setFollowUpForm((prev) => ({
-          ...prev,
-          customer: value,
-          salesperson:
-            selectedCustomer.assignedSalesperson
-        }));
-      }
-    }
-  };
+        const selectedCustomer =
+          customers.find(
+            (customer) =>
+              customer._id === value
+          );
 
-  const saveFollowUp = async (e) => {
+        if (
+          selectedCustomer
+            ?.assignedSalesperson
+        ) {
+          setFollowUpForm(
+            (prev) => ({
+              ...prev,
+              customer: value,
+              salesperson:
+                selectedCustomer.assignedSalesperson
+            })
+          );
+        }
+      }
+    };
+
+  const saveFollowUp = async (
+    e
+  ) => {
     e.preventDefault();
 
-    if (!followUpForm.customer) {
-      alert("Please select a customer.");
+    if (
+      !followUpForm.customer
+    ) {
+      alert(
+        "Please select a customer."
+      );
       return;
     }
 
-    if (!followUpForm.dueAt) {
-      alert("Please select follow-up date and time.");
+    if (
+      !followUpForm.dueAt
+    ) {
+      alert(
+        "Please select follow-up date and time."
+      );
       return;
     }
 
@@ -574,26 +781,42 @@ function App() {
       setSavingFollowUp(true);
 
       const payload = {
-        customer: followUpForm.customer,
+        customer:
+          followUpForm.customer,
+
         salesperson:
-          followUpForm.salesperson || "",
-        dueAt: dubaiLocalToISO(
-          followUpForm.dueAt
-        ),
-        type: followUpForm.type || "Call",
+          followUpForm.salesperson ||
+          "",
+
+        dueAt:
+          dubaiLocalToISO(
+            followUpForm.dueAt
+          ),
+
+        type:
+          followUpForm.type ||
+          "Call",
+
         priority:
-          followUpForm.priority || "Medium",
+          followUpForm.priority ||
+          "Medium",
+
         status: "Pending",
+
         summary:
-          followUpForm.summary || "",
+          followUpForm.summary ||
+          "",
+
         nextAction:
-          followUpForm.nextAction || ""
+          followUpForm.nextAction ||
+          ""
       };
 
-      const response = await axios.post(
-        `${API}/followups`,
-        payload
-      );
+      const response =
+        await axios.post(
+          `${API}/followups`,
+          payload
+        );
 
       setFollowUps((prev) =>
         [...prev, response.data].sort(
@@ -615,12 +838,15 @@ function App() {
 
       await loadData();
 
-      alert("Follow-up saved successfully.");
+      alert(
+        "Follow-up saved successfully."
+      );
     } catch (error) {
       console.error(error);
 
       alert(
-        error.response?.data?.message ||
+        error.response?.data
+          ?.message ||
           "Failed to save follow-up."
       );
     } finally {
@@ -632,166 +858,213 @@ function App() {
      COMPLETE FOLLOW-UP
   ===================================================== */
 
-  const completeFollowUp = async (id) => {
-    if (!id) return;
+  const completeFollowUp =
+    async (id) => {
+      if (!id) return;
 
-    try {
-      setCompletingId(id);
+      try {
+        setCompletingId(id);
 
-      const response = await axios.patch(
-        `${API}/followups/${id}`,
-        {
-          status: "Completed"
-        }
-      );
+        const response =
+          await axios.patch(
+            `${API}/followups/${id}`,
+            {
+              status:
+                "Completed"
+            }
+          );
 
-      setFollowUps((prev) =>
-        prev.map((followUp) =>
-          followUp._id === id
-            ? response.data
-            : followUp
-        )
-      );
+        setFollowUps((prev) =>
+          prev.map(
+            (followUp) =>
+              followUp._id === id
+                ? response.data
+                : followUp
+          )
+        );
 
-      await loadData();
-    } catch (error) {
-      console.error(error);
+        await loadData();
+      } catch (error) {
+        console.error(error);
 
-      alert(
-        error.response?.data?.message ||
-          "Failed to complete follow-up."
-      );
-    } finally {
-      setCompletingId(null);
-    }
-  };
+        alert(
+          error.response?.data
+            ?.message ||
+            "Failed to complete follow-up."
+        );
+      } finally {
+        setCompletingId(null);
+      }
+    };
 
   /* =====================================================
      OPEN FOLLOW-UP EDIT
   ===================================================== */
 
-  const openFollowUpEdit = (followUp) => {
-    if (!followUp) return;
+  const openFollowUpEdit =
+    (followUp) => {
+      if (!followUp) return;
 
-    setEditingFollowUp({
-      _id: followUp._id,
+      setEditingFollowUp({
+        _id:
+          followUp._id,
 
-      customer: followUp.customer,
+        customer:
+          followUp.customer,
 
-      salesperson:
-        followUp.salesperson || "",
+        salesperson:
+          followUp.salesperson ||
+          "",
 
-      dueAt:
-        isoToDubaiLocal(followUp.dueAt),
+        dueAt:
+          isoToDubaiLocal(
+            followUp.dueAt
+          ),
 
-      type:
-        followUp.type || "Call",
+        type:
+          followUp.type ||
+          "Call",
 
-      status:
-        followUp.status || "Pending",
+        status:
+          followUp.status ||
+          "Pending",
 
-      priority:
-        followUp.priority || "Medium",
+        priority:
+          followUp.priority ||
+          "Medium",
 
-      summary:
-        followUp.summary || "",
+        summary:
+          followUp.summary ||
+          "",
 
-      nextAction:
-        followUp.nextAction || ""
-    });
-  };
+        nextAction:
+          followUp.nextAction ||
+          ""
+      });
+    };
 
   /* =====================================================
      EDIT FOLLOW-UP CHANGE
   ===================================================== */
 
-  const handleEditFollowUpChange = (e) => {
-    const { name, value } = e.target;
+  const handleEditFollowUpChange =
+    (e) => {
+      const {
+        name,
+        value
+      } = e.target;
 
-    setEditingFollowUp((prev) => ({
-      ...prev,
-      [name]: value
-    }));
-  };
+      setEditingFollowUp(
+        (prev) => ({
+          ...prev,
+          [name]: value
+        })
+      );
+    };
 
   /* =====================================================
      SAVE FOLLOW-UP EDIT
   ===================================================== */
 
-  const saveFollowUpEdit = async () => {
-    if (!editingFollowUp) return;
+  const saveFollowUpEdit =
+    async () => {
+      if (!editingFollowUp) {
+        return;
+      }
 
-    if (!editingFollowUp.dueAt) {
-      alert("Follow-up date and time are required.");
-      return;
-    }
+      if (
+        !editingFollowUp.dueAt
+      ) {
+        alert(
+          "Follow-up date and time are required."
+        );
+        return;
+      }
 
-    try {
-      setSavingFollowUpEdit(true);
+      try {
+        setSavingFollowUpEdit(
+          true
+        );
 
-      const payload = {
-        dueAt: dubaiLocalToISO(
-          editingFollowUp.dueAt
-        ),
+        const payload = {
+          dueAt:
+            dubaiLocalToISO(
+              editingFollowUp.dueAt
+            ),
 
-        salesperson:
-          editingFollowUp.salesperson || "",
+          salesperson:
+            editingFollowUp.salesperson ||
+            "",
 
-        type:
-          editingFollowUp.type || "Call",
+          type:
+            editingFollowUp.type ||
+            "Call",
 
-        status:
-          editingFollowUp.status || "Pending",
+          status:
+            editingFollowUp.status ||
+            "Pending",
 
-        priority:
-          editingFollowUp.priority || "Medium",
+          priority:
+            editingFollowUp.priority ||
+            "Medium",
 
-        summary:
-          editingFollowUp.summary || "",
+          summary:
+            editingFollowUp.summary ||
+            "",
 
-        nextAction:
-          editingFollowUp.nextAction || ""
-      };
+          nextAction:
+            editingFollowUp.nextAction ||
+            ""
+        };
 
-      const response = await axios.patch(
-        `${API}/followups/${editingFollowUp._id}`,
-        payload
-      );
+        const response =
+          await axios.patch(
+            `${API}/followups/${editingFollowUp._id}`,
+            payload
+          );
 
-      setFollowUps((prev) =>
-        prev
-          .map((followUp) =>
-            followUp._id ===
-            editingFollowUp._id
-              ? response.data
-              : followUp
-          )
-          .sort(
-            (a, b) =>
-              new Date(a.dueAt) -
-              new Date(b.dueAt)
-          )
-      );
+        setFollowUps((prev) =>
+          prev
+            .map(
+              (followUp) =>
+                followUp._id ===
+                editingFollowUp._id
+                  ? response.data
+                  : followUp
+            )
+            .sort(
+              (a, b) =>
+                new Date(a.dueAt) -
+                new Date(b.dueAt)
+            )
+        );
 
-      setEditingFollowUp(null);
+        setEditingFollowUp(
+          null
+        );
 
-      await loadData();
+        await loadData();
 
-      alert("Follow-up updated successfully.");
-    } catch (error) {
-      console.error(error);
+        alert(
+          "Follow-up updated successfully."
+        );
+      } catch (error) {
+        console.error(error);
 
-      alert(
-        error.response?.data?.message ||
-          "Failed to update follow-up."
-      );
-    } finally {
-      setSavingFollowUpEdit(false);
-    }
-  };
+        alert(
+          error.response?.data
+            ?.message ||
+            "Failed to update follow-up."
+        );
+      } finally {
+        setSavingFollowUpEdit(
+          false
+        );
+      }
+    };
 
   /* =====================================================
-     RENDER
+     LOADING
   ===================================================== */
 
   if (loading) {
@@ -804,6 +1077,10 @@ function App() {
     );
   }
 
+  /* =====================================================
+     RENDER
+  ===================================================== */
+
   return (
     <div className="app">
 
@@ -814,8 +1091,13 @@ function App() {
       <header className="app-header">
 
         <div>
-          <h1>Western Furniture CRM</h1>
-          <p>Customer Follow-up Dashboard</p>
+          <h1>
+            Western Furniture CRM
+          </h1>
+
+          <p>
+            Customer Follow-up Dashboard
+          </p>
         </div>
 
         <button
@@ -835,12 +1117,15 @@ function App() {
 
         <button
           className={
-            activeTab === "dashboard"
+            activeTab ===
+            "dashboard"
               ? "tab active"
               : "tab"
           }
           onClick={() =>
-            setActiveTab("dashboard")
+            setActiveTab(
+              "dashboard"
+            )
           }
         >
           Dashboard
@@ -848,12 +1133,15 @@ function App() {
 
         <button
           className={
-            activeTab === "salespersons"
+            activeTab ===
+            "salespersons"
               ? "tab active"
               : "tab"
           }
           onClick={() =>
-            setActiveTab("salespersons")
+            setActiveTab(
+              "salespersons"
+            )
           }
         >
           Salesperson Master
@@ -861,12 +1149,15 @@ function App() {
 
         <button
           className={
-            activeTab === "customers"
+            activeTab ===
+            "customers"
               ? "tab active"
               : "tab"
           }
           onClick={() =>
-            setActiveTab("customers")
+            setActiveTab(
+              "customers"
+            )
           }
         >
           Customers
@@ -874,12 +1165,15 @@ function App() {
 
         <button
           className={
-            activeTab === "followups"
+            activeTab ===
+            "followups"
               ? "tab active"
               : "tab"
           }
           onClick={() =>
-            setActiveTab("followups")
+            setActiveTab(
+              "followups"
+            )
           }
         >
           Follow-ups
@@ -893,48 +1187,117 @@ function App() {
             DASHBOARD
         ================================================= */}
 
-        {activeTab === "dashboard" && (
+        {activeTab ===
+          "dashboard" && (
           <section>
 
-            <div className="page-header">
+            <div className="page-header dashboard-page-header">
+
               <div>
-                <h2>Dashboard</h2>
+                <h2>
+                  Dashboard
+                </h2>
+
                 <p>
-                  Customer and follow-up overview
+                  Customer and
+                  follow-up overview
                 </p>
               </div>
+
+              {/* SALESPERSON FILTER */}
+
+              <div className="dashboard-filter">
+
+                <label>
+                  Salesperson
+                </label>
+
+                <select
+                  value={
+                    dashboardSalespersonFilter
+                  }
+                  onChange={(e) =>
+                    setDashboardSalespersonFilter(
+                      e.target.value
+                    )
+                  }
+                >
+
+                  <option value="All">
+                    All Salespersons
+                  </option>
+
+                  {salespersons
+                    .filter(
+                      (sp) =>
+                        sp.status ===
+                        "Active"
+                    )
+                    .map(
+                      (sp) => (
+                        <option
+                          key={
+                            sp._id
+                          }
+                          value={
+                            sp.name
+                          }
+                        >
+                          {sp.name}
+                        </option>
+                      )
+                    )}
+
+                </select>
+
+              </div>
+
             </div>
+
+            {/* KPI CARDS */}
 
             <div className="stats-grid">
 
               <StatCard
                 title="Customers"
-                value={dashboardStats.customers}
+                value={
+                  dashboardStats.customers
+                }
               />
 
               <StatCard
                 title="Pending Follow-ups"
-                value={dashboardStats.pending}
+                value={
+                  dashboardStats.pending
+                }
               />
 
               <StatCard
                 title="Due Today"
-                value={dashboardStats.today}
+                value={
+                  dashboardStats.today
+                }
               />
 
               <StatCard
                 title="Overdue"
-                value={dashboardStats.overdue}
+                value={
+                  dashboardStats.overdue
+                }
               />
 
               <StatCard
                 title="Completed"
-                value={dashboardStats.completed}
+                value={
+                  dashboardStats.completed
+                }
               />
 
               <StatCard
                 title="Converted"
-                value={dashboardStats.converted}
+                value={
+                  dashboardStats.converted
+                }
               />
 
               <StatCard
@@ -950,72 +1313,110 @@ function App() {
 
             </div>
 
+            {/* DASHBOARD SUMMARY */}
+
             <div className="dashboard-grid">
 
               <div className="card">
 
                 <div className="card-header">
-                  <h3>Follow-up Summary</h3>
+                  <h3>
+                    Follow-up Summary
+                  </h3>
                 </div>
 
                 <div className="summary-list">
 
                   <div className="summary-row">
-                    <span>Pending</span>
+                    <span>
+                      Pending
+                    </span>
+
                     <strong>
-                      {dashboardStats.pending}
+                      {
+                        dashboardStats.pending
+                      }
                     </strong>
                   </div>
 
                   <div className="summary-row">
-                    <span>Due Today</span>
+                    <span>
+                      Due Today
+                    </span>
+
                     <strong>
-                      {dashboardStats.today}
+                      {
+                        dashboardStats.today
+                      }
                     </strong>
                   </div>
 
                   <div className="summary-row">
-                    <span>Overdue</span>
+                    <span>
+                      Overdue
+                    </span>
+
                     <strong>
-                      {dashboardStats.overdue}
+                      {
+                        dashboardStats.overdue
+                      }
                     </strong>
                   </div>
 
                   <div className="summary-row">
-                    <span>Completed</span>
+                    <span>
+                      Completed
+                    </span>
+
                     <strong>
-                      {dashboardStats.completed}
+                      {
+                        dashboardStats.completed
+                      }
                     </strong>
                   </div>
 
                 </div>
-
               </div>
 
               <div className="card">
 
                 <div className="card-header">
-                  <h3>Customer Summary</h3>
+                  <h3>
+                    Customer Summary
+                  </h3>
                 </div>
 
                 <div className="summary-list">
 
                   <div className="summary-row">
-                    <span>Total Customers</span>
+                    <span>
+                      Total Customers
+                    </span>
+
                     <strong>
-                      {dashboardStats.customers}
+                      {
+                        dashboardStats.customers
+                      }
                     </strong>
                   </div>
 
                   <div className="summary-row">
-                    <span>Converted</span>
+                    <span>
+                      Converted
+                    </span>
+
                     <strong>
-                      {dashboardStats.converted}
+                      {
+                        dashboardStats.converted
+                      }
                     </strong>
                   </div>
 
                   <div className="summary-row">
-                    <span>Quotation Value</span>
+                    <span>
+                      Quotation Value
+                    </span>
+
                     <strong>
                       AED{" "}
                       {dashboardStats.quotationAmount.toLocaleString(
@@ -1037,31 +1438,45 @@ function App() {
             SALESPERSON MASTER
         ================================================= */}
 
-        {activeTab === "salespersons" && (
+        {activeTab ===
+          "salespersons" && (
           <section>
 
             <div className="page-header">
+
               <div>
-                <h2>Salesperson Master</h2>
+                <h2>
+                  Salesperson Master
+                </h2>
+
                 <p>
-                  Manage active salespersons
+                  Manage active
+                  salespersons
                 </p>
               </div>
+
             </div>
 
             <div className="card">
 
               <div className="card-header">
-                <h3>Add Salesperson</h3>
+                <h3>
+                  Add Salesperson
+                </h3>
               </div>
 
               <form
                 className="form-grid"
-                onSubmit={saveSalesperson}
+                onSubmit={
+                  saveSalesperson
+                }
               >
 
                 <div className="form-group">
-                  <label>Name</label>
+
+                  <label>
+                    Name
+                  </label>
 
                   <input
                     name="name"
@@ -1074,10 +1489,14 @@ function App() {
                     placeholder="Salesperson name"
                     required
                   />
+
                 </div>
 
                 <div className="form-group">
-                  <label>Location</label>
+
+                  <label>
+                    Location
+                  </label>
 
                   <select
                     name="location"
@@ -1088,6 +1507,7 @@ function App() {
                       handleSalespersonChange
                     }
                   >
+
                     <option value="">
                       Select Location
                     </option>
@@ -1103,11 +1523,16 @@ function App() {
                     <option value="ADH Galleria">
                       ADH Galleria
                     </option>
+
                   </select>
+
                 </div>
 
                 <div className="form-group">
-                  <label>Status</label>
+
+                  <label>
+                    Status
+                  </label>
 
                   <select
                     name="status"
@@ -1118,6 +1543,7 @@ function App() {
                       handleSalespersonChange
                     }
                   >
+
                     <option value="Active">
                       Active
                     </option>
@@ -1125,19 +1551,25 @@ function App() {
                     <option value="Inactive">
                       Inactive
                     </option>
+
                   </select>
+
                 </div>
 
                 <div className="form-actions">
+
                   <button
                     type="submit"
                     className="btn btn-primary"
-                    disabled={savingSalesperson}
+                    disabled={
+                      savingSalesperson
+                    }
                   >
                     {savingSalesperson
                       ? "Saving..."
                       : "Add Salesperson"}
                   </button>
+
                 </div>
 
               </form>
@@ -1147,22 +1579,41 @@ function App() {
             <div className="card">
 
               <div className="card-header">
+
                 <h3>
                   Salespersons (
-                  {salespersons.length})
+                  {
+                    salespersons.length
+                  }
+                  )
                 </h3>
+
               </div>
 
               <div className="table-wrapper">
 
                 <table>
+
                   <thead>
+
                     <tr>
-                      <th>Code</th>
-                      <th>Name</th>
-                      <th>Location</th>
-                      <th>Status</th>
+                      <th>
+                        Code
+                      </th>
+
+                      <th>
+                        Name
+                      </th>
+
+                      <th>
+                        Location
+                      </th>
+
+                      <th>
+                        Status
+                      </th>
                     </tr>
+
                   </thead>
 
                   <tbody>
@@ -1174,6 +1625,7 @@ function App() {
                             salesperson._id
                           }
                         >
+
                           <td>
                             {
                               salesperson.salespersonCode
@@ -1181,7 +1633,9 @@ function App() {
                           </td>
 
                           <td>
-                            {salesperson.name}
+                            {
+                              salesperson.name
+                            }
                           </td>
 
                           <td>
@@ -1192,6 +1646,7 @@ function App() {
                           </td>
 
                           <td>
+
                             <Badge
                               type={
                                 salesperson.status ===
@@ -1204,12 +1659,15 @@ function App() {
                                 salesperson.status
                               }
                             </Badge>
+
                           </td>
+
                         </tr>
                       )
                     )}
 
                   </tbody>
+
                 </table>
 
               </div>
@@ -1223,57 +1681,87 @@ function App() {
             CUSTOMERS
         ================================================= */}
 
-        {activeTab === "customers" && (
+        {activeTab ===
+          "customers" && (
           <section>
 
             <div className="page-header">
+
               <div>
-                <h2>Customers</h2>
+
+                <h2>
+                  Customers
+                </h2>
+
                 <p>
-                  Customer master and quotation information
+                  Customer master and
+                  quotation information
                 </p>
+
               </div>
+
             </div>
 
             <div className="card">
 
               <div className="card-header">
-                <h3>Add Customer</h3>
+
+                <h3>
+                  Add Customer
+                </h3>
+
               </div>
 
               <form
                 className="form-grid"
-                onSubmit={saveCustomer}
+                onSubmit={
+                  saveCustomer
+                }
               >
 
                 <div className="form-group">
-                  <label>Name</label>
+
+                  <label>
+                    Name
+                  </label>
 
                   <input
                     name="name"
-                    value={customerForm.name}
+                    value={
+                      customerForm.name
+                    }
                     onChange={
                       handleCustomerChange
                     }
                     placeholder="Customer name"
                     required
                   />
+
                 </div>
 
                 <div className="form-group">
-                  <label>Phone</label>
+
+                  <label>
+                    Phone
+                  </label>
 
                   <input
                     name="phone"
-                    value={customerForm.phone}
+                    value={
+                      customerForm.phone
+                    }
                     onChange={
                       handleCustomerChange
                     }
                   />
+
                 </div>
 
                 <div className="form-group">
-                  <label>WhatsApp</label>
+
+                  <label>
+                    WhatsApp
+                  </label>
 
                   <input
                     name="whatsapp"
@@ -1284,23 +1772,33 @@ function App() {
                       handleCustomerChange
                     }
                   />
+
                 </div>
 
                 <div className="form-group">
-                  <label>Email</label>
+
+                  <label>
+                    Email
+                  </label>
 
                   <input
                     type="email"
                     name="email"
-                    value={customerForm.email}
+                    value={
+                      customerForm.email
+                    }
                     onChange={
                       handleCustomerChange
                     }
                   />
+
                 </div>
 
                 <div className="form-group">
-                  <label>Location</label>
+
+                  <label>
+                    Location
+                  </label>
 
                   <input
                     name="location"
@@ -1311,18 +1809,25 @@ function App() {
                       handleCustomerChange
                     }
                   />
+
                 </div>
 
                 <div className="form-group">
-                  <label>Source</label>
+
+                  <label>
+                    Source
+                  </label>
 
                   <select
                     name="source"
-                    value={customerForm.source}
+                    value={
+                      customerForm.source
+                    }
                     onChange={
                       handleCustomerChange
                     }
                   >
+
                     <option value="Walk-in">
                       Walk-in
                     </option>
@@ -1346,11 +1851,16 @@ function App() {
                     <option value="Other">
                       Other
                     </option>
+
                   </select>
+
                 </div>
 
                 <div className="form-group">
-                  <label>Salesperson</label>
+
+                  <label>
+                    Salesperson
+                  </label>
 
                   <select
                     name="assignedSalesperson"
@@ -1361,6 +1871,7 @@ function App() {
                       handleCustomerChange
                     }
                   >
+
                     <option value="">
                       Select Salesperson
                     </option>
@@ -1371,27 +1882,43 @@ function App() {
                           sp.status ===
                           "Active"
                       )
-                      .map((sp) => (
-                        <option
-                          key={sp._id}
-                          value={sp.name}
-                        >
-                          {sp.name}
-                        </option>
-                      ))}
+                      .map(
+                        (sp) => (
+                          <option
+                            key={
+                              sp._id
+                            }
+                            value={
+                              sp.name
+                            }
+                          >
+                            {
+                              sp.name
+                            }
+                          </option>
+                        )
+                      )}
+
                   </select>
+
                 </div>
 
                 <div className="form-group">
-                  <label>Status</label>
+
+                  <label>
+                    Status
+                  </label>
 
                   <select
                     name="status"
-                    value={customerForm.status}
+                    value={
+                      customerForm.status
+                    }
                     onChange={
                       handleCustomerChange
                     }
                   >
+
                     <option value="New">
                       New
                     </option>
@@ -1419,11 +1946,16 @@ function App() {
                     <option value="Active">
                       Active
                     </option>
+
                   </select>
+
                 </div>
 
                 <div className="form-group">
-                  <label>Product Interest</label>
+
+                  <label>
+                    Product Interest
+                  </label>
 
                   <input
                     name="productInterest"
@@ -1434,10 +1966,14 @@ function App() {
                       handleCustomerChange
                     }
                   />
+
                 </div>
 
                 <div className="form-group">
-                  <label>Quotation Amount</label>
+
+                  <label>
+                    Quotation Amount
+                  </label>
 
                   <input
                     type="number"
@@ -1452,18 +1988,23 @@ function App() {
                     }
                     placeholder="AED"
                   />
+
                 </div>
 
                 <div className="form-actions">
+
                   <button
                     type="submit"
                     className="btn btn-primary"
-                    disabled={savingCustomer}
+                    disabled={
+                      savingCustomer
+                    }
                   >
                     {savingCustomer
                       ? "Saving..."
                       : "Add Customer"}
                   </button>
+
                 </div>
 
               </form>
@@ -1476,12 +2017,17 @@ function App() {
 
                 <h3>
                   Customer Directory (
-                  {filteredCustomers.length})
+                  {
+                    filteredCustomers.length
+                  }
+                  )
                 </h3>
 
                 <input
                   className="search-input"
-                  value={customerSearch}
+                  value={
+                    customerSearch
+                  }
                   onChange={(e) =>
                     setCustomerSearch(
                       e.target.value
@@ -1495,18 +2041,47 @@ function App() {
               <div className="table-wrapper">
 
                 <table>
+
                   <thead>
+
                     <tr>
-                      <th>Code</th>
-                      <th>Name</th>
-                      <th>Phone</th>
-                      <th>Location</th>
-                      <th>Source</th>
-                      <th>Salesperson</th>
-                      <th>Status</th>
-                      <th>Product</th>
-                      <th>Quotation</th>
+                      <th>
+                        Code
+                      </th>
+
+                      <th>
+                        Name
+                      </th>
+
+                      <th>
+                        Phone
+                      </th>
+
+                      <th>
+                        Location
+                      </th>
+
+                      <th>
+                        Source
+                      </th>
+
+                      <th>
+                        Salesperson
+                      </th>
+
+                      <th>
+                        Status
+                      </th>
+
+                      <th>
+                        Product
+                      </th>
+
+                      <th>
+                        Quotation
+                      </th>
                     </tr>
+
                   </thead>
 
                   <tbody>
@@ -1514,12 +2089,15 @@ function App() {
                     {filteredCustomers.length ===
                     0 ? (
                       <tr>
+
                         <td
                           colSpan="9"
                           className="empty"
                         >
-                          No customers found.
+                          No customers
+                          found.
                         </td>
+
                       </tr>
                     ) : (
                       filteredCustomers.map(
@@ -1529,6 +2107,7 @@ function App() {
                               customer._id
                             }
                           >
+
                             <td>
                               {
                                 customer.customerCode
@@ -1536,22 +2115,30 @@ function App() {
                             </td>
 
                             <td>
-                              {customer.name}
+                              {
+                                customer.name
+                              }
                             </td>
 
                             <td>
-                              {customer.phone ||
-                                "-"}
+                              {
+                                customer.phone ||
+                                "-"
+                              }
                             </td>
 
                             <td>
-                              {customer.location ||
-                                "-"}
+                              {
+                                customer.location ||
+                                "-"
+                              }
                             </td>
 
                             <td>
-                              {customer.source ||
-                                "-"}
+                              {
+                                customer.source ||
+                                "-"
+                              }
                             </td>
 
                             <td>
@@ -1562,11 +2149,13 @@ function App() {
                             </td>
 
                             <td>
+
                               <Badge>
                                 {
                                   customer.status
                                 }
                               </Badge>
+
                             </td>
 
                             <td>
@@ -1596,6 +2185,7 @@ function App() {
                     )}
 
                   </tbody>
+
                 </table>
 
               </div>
@@ -1609,35 +2199,49 @@ function App() {
             FOLLOW-UPS
         ================================================= */}
 
-        {activeTab === "followups" && (
+        {activeTab ===
+          "followups" && (
           <section>
 
             <div className="page-header">
-              <div>
-                <h2>Follow-ups</h2>
-                <p>
-                  Schedule and manage customer follow-ups
-                </p>
-              </div>
-            </div>
 
-            {/* ---------------------------------------------
-                ADD FOLLOW-UP
-            --------------------------------------------- */}
+              <div>
+
+                <h2>
+                  Follow-ups
+                </h2>
+
+                <p>
+                  Schedule and manage
+                  customer follow-ups
+                </p>
+
+              </div>
+
+            </div>
 
             <div className="card">
 
               <div className="card-header">
-                <h3>Schedule Follow-up</h3>
+
+                <h3>
+                  Schedule Follow-up
+                </h3>
+
               </div>
 
               <form
                 className="form-grid"
-                onSubmit={saveFollowUp}
+                onSubmit={
+                  saveFollowUp
+                }
               >
 
                 <div className="form-group">
-                  <label>Customer</label>
+
+                  <label>
+                    Customer
+                  </label>
 
                   <select
                     name="customer"
@@ -1649,6 +2253,7 @@ function App() {
                     }
                     required
                   >
+
                     <option value="">
                       Select Customer
                     </option>
@@ -1656,20 +2261,33 @@ function App() {
                     {customers.map(
                       (customer) => (
                         <option
-                          key={customer._id}
-                          value={customer._id}
+                          key={
+                            customer._id
+                          }
+                          value={
+                            customer._id
+                          }
                         >
-                          {customer.customerCode} -{" "}
-                          {customer.name}
+                          {
+                            customer.customerCode
+                          }{" "}
+                          -{" "}
+                          {
+                            customer.name
+                          }
                         </option>
                       )
                     )}
 
                   </select>
+
                 </div>
 
                 <div className="form-group">
-                  <label>Salesperson</label>
+
+                  <label>
+                    Salesperson
+                  </label>
 
                   <select
                     name="salesperson"
@@ -1680,6 +2298,7 @@ function App() {
                       handleFollowUpChange
                     }
                   >
+
                     <option value="">
                       Select Salesperson
                     </option>
@@ -1690,19 +2309,32 @@ function App() {
                           sp.status ===
                           "Active"
                       )
-                      .map((sp) => (
-                        <option
-                          key={sp._id}
-                          value={sp.name}
-                        >
-                          {sp.name}
-                        </option>
-                      ))}
+                      .map(
+                        (sp) => (
+                          <option
+                            key={
+                              sp._id
+                            }
+                            value={
+                              sp.name
+                            }
+                          >
+                            {
+                              sp.name
+                            }
+                          </option>
+                        )
+                      )}
+
                   </select>
+
                 </div>
 
                 <div className="form-group">
-                  <label>Date & Time</label>
+
+                  <label>
+                    Date & Time
+                  </label>
 
                   <input
                     type="datetime-local"
@@ -1715,10 +2347,14 @@ function App() {
                     }
                     required
                   />
+
                 </div>
 
                 <div className="form-group">
-                  <label>Type</label>
+
+                  <label>
+                    Type
+                  </label>
 
                   <select
                     name="type"
@@ -1729,6 +2365,7 @@ function App() {
                       handleFollowUpChange
                     }
                   >
+
                     <option value="Call">
                       Call
                     </option>
@@ -1748,11 +2385,16 @@ function App() {
                     <option value="Meeting">
                       Meeting
                     </option>
+
                   </select>
+
                 </div>
 
                 <div className="form-group">
-                  <label>Priority</label>
+
+                  <label>
+                    Priority
+                  </label>
 
                   <select
                     name="priority"
@@ -1763,6 +2405,7 @@ function App() {
                       handleFollowUpChange
                     }
                   >
+
                     <option value="Low">
                       Low
                     </option>
@@ -1778,11 +2421,16 @@ function App() {
                     <option value="Urgent">
                       Urgent
                     </option>
+
                   </select>
+
                 </div>
 
                 <div className="form-group full-width">
-                  <label>Summary</label>
+
+                  <label>
+                    Summary
+                  </label>
 
                   <textarea
                     name="summary"
@@ -1795,10 +2443,14 @@ function App() {
                     rows="3"
                     placeholder="Enter follow-up summary..."
                   />
+
                 </div>
 
                 <div className="form-group full-width">
-                  <label>Next Action</label>
+
+                  <label>
+                    Next Action
+                  </label>
 
                   <textarea
                     name="nextAction"
@@ -1811,6 +2463,7 @@ function App() {
                     rows="3"
                     placeholder="Enter next action..."
                   />
+
                 </div>
 
                 <div className="form-actions">
@@ -1818,7 +2471,9 @@ function App() {
                   <button
                     type="submit"
                     className="btn btn-primary"
-                    disabled={savingFollowUp}
+                    disabled={
+                      savingFollowUp
+                    }
                   >
                     {savingFollowUp
                       ? "Saving..."
@@ -1831,17 +2486,16 @@ function App() {
 
             </div>
 
-            {/* ---------------------------------------------
-                FOLLOW-UP GRID
-            --------------------------------------------- */}
-
             <div className="card">
 
               <div className="card-header">
 
                 <h3>
                   Follow-up List (
-                  {filteredFollowUps.length})
+                  {
+                    filteredFollowUps.length
+                  }
+                  )
                 </h3>
 
               </div>
@@ -1850,7 +2504,9 @@ function App() {
 
                 <input
                   className="search-input"
-                  value={followUpSearch}
+                  value={
+                    followUpSearch
+                  }
                   onChange={(e) =>
                     setFollowUpSearch(
                       e.target.value
@@ -1869,6 +2525,7 @@ function App() {
                     )
                   }
                 >
+
                   <option value="All">
                     All Status
                   </option>
@@ -1880,6 +2537,7 @@ function App() {
                   <option value="Completed">
                     Completed
                   </option>
+
                 </select>
 
                 <select
@@ -1892,6 +2550,7 @@ function App() {
                     )
                   }
                 >
+
                   <option value="All">
                     All Salespersons
                   </option>
@@ -1902,14 +2561,23 @@ function App() {
                         sp.status ===
                         "Active"
                     )
-                    .map((sp) => (
-                      <option
-                        key={sp._id}
-                        value={sp.name}
-                      >
-                        {sp.name}
-                      </option>
-                    ))}
+                    .map(
+                      (sp) => (
+                        <option
+                          key={
+                            sp._id
+                          }
+                          value={
+                            sp.name
+                          }
+                        >
+                          {
+                            sp.name
+                          }
+                        </option>
+                      )
+                    )}
+
                 </select>
 
               </div>
@@ -1919,17 +2587,47 @@ function App() {
                 <table>
 
                   <thead>
+
                     <tr>
-                      <th>Customer</th>
-                      <th>Salesperson</th>
-                      <th>Date & Time</th>
-                      <th>Type</th>
-                      <th>Priority</th>
-                      <th>Status</th>
-                      <th>Summary</th>
-                      <th>Next Action</th>
-                      <th>Action</th>
+
+                      <th>
+                        Customer
+                      </th>
+
+                      <th>
+                        Salesperson
+                      </th>
+
+                      <th>
+                        Date & Time
+                      </th>
+
+                      <th>
+                        Type
+                      </th>
+
+                      <th>
+                        Priority
+                      </th>
+
+                      <th>
+                        Status
+                      </th>
+
+                      <th>
+                        Summary
+                      </th>
+
+                      <th>
+                        Next Action
+                      </th>
+
+                      <th>
+                        Action
+                      </th>
+
                     </tr>
+
                   </thead>
 
                   <tbody>
@@ -1937,12 +2635,15 @@ function App() {
                     {filteredFollowUps.length ===
                     0 ? (
                       <tr>
+
                         <td
                           colSpan="9"
                           className="empty"
                         >
-                          No follow-ups found.
+                          No follow-ups
+                          found.
                         </td>
+
                       </tr>
                     ) : (
                       filteredFollowUps.map(
@@ -1968,6 +2669,7 @@ function App() {
                             >
 
                               <td>
+
                                 <strong>
                                   {
                                     followUp
@@ -1983,6 +2685,7 @@ function App() {
                                       ?.customerCode
                                   }
                                 </div>
+
                               </td>
 
                               <td>
@@ -1993,33 +2696,43 @@ function App() {
                               </td>
 
                               <td>
-                                {fmt(
-                                  followUp.dueAt
-                                )}
+
+                                {
+                                  fmt(
+                                    followUp.dueAt
+                                  )
+                                }
 
                                 {overdue && (
                                   <div>
+
                                     <Badge type="danger">
                                       Overdue
                                     </Badge>
+
                                   </div>
                                 )}
+
                               </td>
 
                               <td>
+
                                 <Badge>
                                   {
                                     followUp.type
                                   }
                                 </Badge>
+
                               </td>
 
                               <td>
+
                                 <Badge>
                                   {
                                     followUp.priority
                                   }
                                 </Badge>
+
                               </td>
 
                               <td>
@@ -2053,15 +2766,10 @@ function App() {
                                 }
                               </td>
 
-                              {/* ==================================
-                                  ACTION COLUMN
-                              ================================== */}
-
                               <td>
 
                                 <div className="action-buttons">
 
-                                  {/* EDIT BUTTON */}
                                   <button
                                     type="button"
                                     className="btn btn-secondary"
@@ -2074,7 +2782,6 @@ function App() {
                                     Edit
                                   </button>
 
-                                  {/* COMPLETE BUTTON */}
                                   {followUp.status ===
                                     "Pending" && (
                                     <button
@@ -2128,14 +2835,20 @@ function App() {
         <div
           className="modal-overlay"
           onClick={(e) => {
+
             if (
               e.target ===
               e.currentTarget
             ) {
-              if (!savingFollowUpEdit) {
-                setEditingFollowUp(null);
+              if (
+                !savingFollowUpEdit
+              ) {
+                setEditingFollowUp(
+                  null
+                );
               }
             }
+
           }}
         >
 
@@ -2144,11 +2857,16 @@ function App() {
             <div className="modal-header">
 
               <div>
-                <h3>Edit Follow-up</h3>
+
+                <h3>
+                  Edit Follow-up
+                </h3>
 
                 <p className="modal-subtitle">
-                  Update follow-up details
+                  Update follow-up
+                  details
                 </p>
+
               </div>
 
               <button
@@ -2156,7 +2874,9 @@ function App() {
                 className="modal-close"
                 onClick={() =>
                   !savingFollowUpEdit &&
-                  setEditingFollowUp(null)
+                  setEditingFollowUp(
+                    null
+                  )
                 }
                 disabled={
                   savingFollowUpEdit
@@ -2171,10 +2891,11 @@ function App() {
 
               <div className="form-grid">
 
-                {/* CUSTOMER */}
-
                 <div className="form-group">
-                  <label>Customer</label>
+
+                  <label>
+                    Customer
+                  </label>
 
                   <input
                     type="text"
@@ -2197,12 +2918,14 @@ function App() {
                       }
                     </small>
                   )}
+
                 </div>
 
-                {/* SALESPERSON */}
-
                 <div className="form-group">
-                  <label>Salesperson</label>
+
+                  <label>
+                    Salesperson
+                  </label>
 
                   <select
                     name="salesperson"
@@ -2214,6 +2937,7 @@ function App() {
                       handleEditFollowUpChange
                     }
                   >
+
                     <option value="">
                       Select Salesperson
                     </option>
@@ -2224,20 +2948,29 @@ function App() {
                           sp.status ===
                           "Active"
                       )
-                      .map((sp) => (
-                        <option
-                          key={sp._id}
-                          value={sp.name}
-                        >
-                          {sp.name}
-                        </option>
-                      ))}
+                      .map(
+                        (sp) => (
+                          <option
+                            key={
+                              sp._id
+                            }
+                            value={
+                              sp.name
+                            }
+                          >
+                            {
+                              sp.name
+                            }
+                          </option>
+                        )
+                      )}
+
                   </select>
+
                 </div>
 
-                {/* DATE & TIME */}
-
                 <div className="form-group">
+
                   <label>
                     Follow-up Date & Time
                   </label>
@@ -2255,14 +2988,17 @@ function App() {
                   />
 
                   <small className="muted">
-                    Time is in Dubai local time
+                    Time is in Dubai
+                    local time
                   </small>
+
                 </div>
 
-                {/* TYPE */}
-
                 <div className="form-group">
-                  <label>Type</label>
+
+                  <label>
+                    Type
+                  </label>
 
                   <select
                     name="type"
@@ -2274,6 +3010,7 @@ function App() {
                       handleEditFollowUpChange
                     }
                   >
+
                     <option value="Call">
                       Call
                     </option>
@@ -2293,13 +3030,16 @@ function App() {
                     <option value="Meeting">
                       Meeting
                     </option>
+
                   </select>
+
                 </div>
 
-                {/* STATUS */}
-
                 <div className="form-group">
-                  <label>Status</label>
+
+                  <label>
+                    Status
+                  </label>
 
                   <select
                     name="status"
@@ -2311,6 +3051,7 @@ function App() {
                       handleEditFollowUpChange
                     }
                   >
+
                     <option value="Pending">
                       Pending
                     </option>
@@ -2318,13 +3059,16 @@ function App() {
                     <option value="Completed">
                       Completed
                     </option>
+
                   </select>
+
                 </div>
 
-                {/* PRIORITY */}
-
                 <div className="form-group">
-                  <label>Priority</label>
+
+                  <label>
+                    Priority
+                  </label>
 
                   <select
                     name="priority"
@@ -2336,6 +3080,7 @@ function App() {
                       handleEditFollowUpChange
                     }
                   >
+
                     <option value="Low">
                       Low
                     </option>
@@ -2351,13 +3096,16 @@ function App() {
                     <option value="Urgent">
                       Urgent
                     </option>
+
                   </select>
+
                 </div>
 
-                {/* SUMMARY */}
-
                 <div className="form-group full-width">
-                  <label>Summary</label>
+
+                  <label>
+                    Summary
+                  </label>
 
                   <textarea
                     name="summary"
@@ -2371,12 +3119,14 @@ function App() {
                     rows="4"
                     placeholder="Enter follow-up summary..."
                   />
+
                 </div>
 
-                {/* NEXT ACTION */}
-
                 <div className="form-group full-width">
-                  <label>Next Action</label>
+
+                  <label>
+                    Next Action
+                  </label>
 
                   <textarea
                     name="nextAction"
@@ -2390,6 +3140,7 @@ function App() {
                     rows="4"
                     placeholder="Enter next action..."
                   />
+
                 </div>
 
               </div>
@@ -2402,7 +3153,9 @@ function App() {
                 type="button"
                 className="btn btn-secondary"
                 onClick={() =>
-                  setEditingFollowUp(null)
+                  setEditingFollowUp(
+                    null
+                  )
                 }
                 disabled={
                   savingFollowUpEdit
@@ -2414,7 +3167,9 @@ function App() {
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={saveFollowUpEdit}
+                onClick={
+                  saveFollowUpEdit
+                }
                 disabled={
                   savingFollowUpEdit ||
                   !editingFollowUp.dueAt
@@ -2435,6 +3190,10 @@ function App() {
     </div>
   );
 }
+
+/* =========================================================
+   REACT ROOT
+========================================================= */
 
 createRoot(
   document.getElementById("root")
