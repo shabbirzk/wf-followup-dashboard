@@ -231,7 +231,7 @@ function App() {
   const [followUpCustomerSearch, setFollowUpCustomerSearch] =
     useState("");
 
-  const [showFollowUpCustomerResults, setShowFollowUpCustomerResults] =
+  const [showCustomerResults, setShowCustomerResults] =
     useState(false);
 
   /* =====================================================
@@ -495,38 +495,39 @@ function App() {
   ]);
 
   /* =====================================================
-     FOLLOW-UP CUSTOMER SEARCH RESULTS
+     FOLLOW-UP CUSTOMER SEARCH FILTER
   ===================================================== */
 
-  const filteredFollowUpCustomers = useMemo(() => {
-    const search =
+  const filteredFollowUpCustomers =
+    useMemo(() => {
+      const search =
+        followUpCustomerSearch
+          .trim()
+          .toLowerCase();
+
+      if (!search) {
+        return [];
+      }
+
+      return customers.filter(
+        (customer) =>
+          [
+            customer.customerCode,
+            customer.name,
+            customer.phone,
+            customer.whatsapp,
+            customer.email,
+            customer.location,
+            customer.assignedSalesperson
+          ]
+            .join(" ")
+            .toLowerCase()
+            .includes(search)
+      );
+    }, [
+      customers,
       followUpCustomerSearch
-        .trim()
-        .toLowerCase();
-
-    if (!search) {
-      return customers;
-    }
-
-    return customers.filter(
-      (customer) =>
-        [
-          customer.customerCode,
-          customer.name,
-          customer.phone,
-          customer.whatsapp,
-          customer.email,
-          customer.location,
-          customer.assignedSalesperson
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(search)
-    );
-  }, [
-    customers,
-    followUpCustomerSearch
-  ]);
+    ]);
 
   /* =====================================================
      FOLLOW-UP FILTER
@@ -800,73 +801,6 @@ function App() {
       }
     };
 
-  const handleFollowUpCustomerSearch = (
-    e
-  ) => {
-    const value = e.target.value;
-
-    setFollowUpCustomerSearch(value);
-    setShowFollowUpCustomerResults(true);
-
-    /*
-      If the user changes the search text
-      after selecting a customer, clear the
-      stored customer selection so that the
-      displayed text and selected customer
-      cannot get out of sync.
-    */
-    if (
-      followUpForm.customer
-    ) {
-      const selectedCustomer =
-        customers.find(
-          (customer) =>
-            customer._id ===
-            followUpForm.customer
-        );
-
-      const selectedText =
-        selectedCustomer
-          ? `${selectedCustomer.customerCode} - ${selectedCustomer.name}`
-          : "";
-
-      if (value !== selectedText) {
-        setFollowUpForm(
-          (prev) => ({
-            ...prev,
-            customer: "",
-            salesperson: ""
-          })
-        );
-      }
-    }
-  };
-
-  const selectFollowUpCustomer = (
-    customer
-  ) => {
-    if (!customer) return;
-
-    setFollowUpForm(
-      (prev) => ({
-        ...prev,
-        customer:
-          customer._id,
-        salesperson:
-          customer.assignedSalesperson ||
-          ""
-      })
-    );
-
-    setFollowUpCustomerSearch(
-      `${customer.customerCode} - ${customer.name}`
-    );
-
-    setShowFollowUpCustomerResults(
-      false
-    );
-  };
-
   const saveFollowUp = async (
     e
   ) => {
@@ -950,9 +884,7 @@ function App() {
       });
 
       setFollowUpCustomerSearch("");
-      setShowFollowUpCustomerResults(
-        false
-      );
+      setShowCustomerResults(false);
 
       await loadData();
 
@@ -2383,9 +2315,7 @@ function App() {
                 }
               >
 
-                {/* =================================================
-                    SEARCHABLE CUSTOMER
-                ================================================= */}
+                {/* CUSTOMER SEARCH */}
 
                 <div
                   className="form-group"
@@ -2403,16 +2333,54 @@ function App() {
                     value={
                       followUpCustomerSearch
                     }
-                    onChange={
-                      handleFollowUpCustomerSearch
-                    }
-                    onFocus={() =>
-                      setShowFollowUpCustomerResults(
+                    onChange={(e) => {
+                      const value =
+                        e.target.value;
+
+                      setFollowUpCustomerSearch(
+                        value
+                      );
+
+                      if (
+                        !value.trim()
+                      ) {
+                        setFollowUpForm(
+                          (prev) => ({
+                            ...prev,
+                            customer: "",
+                            salesperson: ""
+                          })
+                        );
+
+                        setShowCustomerResults(
+                          false
+                        );
+
+                        return;
+                      }
+
+                      setFollowUpForm(
+                        (prev) => ({
+                          ...prev,
+                          customer: "",
+                          salesperson: ""
+                        })
+                      );
+
+                      setShowCustomerResults(
                         true
-                      )
-                    }
+                      );
+                    }}
+                    onFocus={() => {
+                      if (
+                        followUpCustomerSearch.trim()
+                      ) {
+                        setShowCustomerResults(
+                          true
+                        );
+                      }
+                    }}
                     placeholder="Search customer..."
-                    autoComplete="off"
                     required={
                       !followUpForm.customer
                     }
@@ -2429,68 +2397,88 @@ function App() {
                     </small>
                   )}
 
-                  {showFollowUpCustomerResults && (
-                    <div
-                      className="customer-search-results"
-                      onMouseDown={(e) =>
-                        e.preventDefault()
-                      }
-                    >
+                  {showCustomerResults &&
+                    followUpCustomerSearch.trim() && (
+                      <div
+                        className="customer-search-results"
+                        onMouseDown={(e) =>
+                          e.preventDefault()
+                        }
+                      >
 
-                      {filteredFollowUpCustomers.length ===
-                      0 ? (
-                        <div className="customer-search-empty">
-                          No customers found
-                        </div>
-                      ) : (
-                        filteredFollowUpCustomers.map(
-                          (customer) => (
-                            <div
-                              key={
-                                customer._id
-                              }
-                              className="customer-search-item"
-                              onClick={() =>
-                                selectFollowUpCustomer(
-                                  customer
-                                )
-                              }
-                            >
-
-                              <strong>
-                                {
-                                  customer.customerCode
-                                }{" "}
-                                -{" "}
-                                {
-                                  customer.name
+                        {filteredFollowUpCustomers.length ===
+                        0 ? (
+                          <div className="customer-search-empty">
+                            No customers found
+                          </div>
+                        ) : (
+                          filteredFollowUpCustomers.map(
+                            (customer) => (
+                              <div
+                                key={
+                                  customer._id
                                 }
-                              </strong>
+                                className="customer-search-item"
+                                onClick={() => {
 
-                              <div className="muted">
+                                  setFollowUpForm(
+                                    (prev) => ({
+                                      ...prev,
+                                      customer:
+                                        customer._id,
+                                      salesperson:
+                                        customer.assignedSalesperson ||
+                                        ""
+                                    })
+                                  );
 
-                                {customer.phone ||
-                                  ""}
+                                  setFollowUpCustomerSearch(
+                                    `${customer.customerCode} - ${customer.name}`
+                                  );
 
-                                {customer.phone &&
-                                customer.assignedSalesperson
-                                  ? " • "
-                                  : ""}
+                                  setShowCustomerResults(
+                                    false
+                                  );
 
-                                {
-                                  customer.assignedSalesperson ||
-                                  ""
-                                }
+                                }}
+                              >
+
+                                <strong>
+                                  {
+                                    customer.customerCode
+                                  }{" "}
+                                  -{" "}
+                                  {
+                                    customer.name
+                                  }
+                                </strong>
+
+                                <div className="muted">
+
+                                  {
+                                    customer.phone ||
+                                    ""
+                                  }
+
+                                  {customer.phone &&
+                                  customer.assignedSalesperson
+                                    ? " • "
+                                    : ""}
+
+                                  {
+                                    customer.assignedSalesperson ||
+                                    ""
+                                  }
+
+                                </div>
 
                               </div>
-
-                            </div>
+                            )
                           )
-                        )
-                      )}
+                        )}
 
-                    </div>
-                  )}
+                      </div>
+                    )}
 
                 </div>
 
@@ -2856,6 +2844,7 @@ function App() {
                         </td>
 
                       </tr>
+
                     ) : (
                       filteredFollowUps.map(
                         (followUp) => {
