@@ -4,6 +4,8 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
+const apiRouter = require('./routes/api');
+
 const app = express();
 
 /* ========================================================
@@ -47,7 +49,7 @@ app.use(express.json());
    API ROUTES
    ======================================================== */
 
-app.use('/api', require('./routes/api'));
+app.use('/api', apiRouter);
 
 /* ========================================================
    MONGODB + SERVER
@@ -65,6 +67,35 @@ mongoose
       console.log(
         `API running on port ${PORT}`
       );
+
+      /* ====================================================
+         FOLLOW-UP REMINDER SCHEDULER
+         ==================================================== */
+
+      const checkDueFollowUpReminders =
+        apiRouter.checkDueFollowUpReminders;
+
+      if (
+        typeof checkDueFollowUpReminders ===
+        'function'
+      ) {
+        // Check immediately when server starts
+        checkDueFollowUpReminders();
+
+        // Check every 30 seconds
+        setInterval(
+          checkDueFollowUpReminders,
+          30000
+        );
+
+        console.log(
+          'Follow-up reminder scheduler started.'
+        );
+      } else {
+        console.error(
+          'Follow-up reminder scheduler could not start.'
+        );
+      }
     });
   })
   .catch((error) => {
