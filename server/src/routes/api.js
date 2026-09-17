@@ -57,7 +57,6 @@ router.get('/salespersons', async (req, res) => {
   }
 });
 
-
 router.post('/salespersons', async (req, res) => {
   try {
     const name = cleanName(req.body.name);
@@ -137,7 +136,6 @@ router.post('/salespersons', async (req, res) => {
   }
 });
 
-
 router.patch(
   '/salespersons/:id',
   async (req, res) => {
@@ -178,7 +176,6 @@ router.patch(
   }
 );
 
-
 /* ========================================================
    CUSTOMER MASTER
    ======================================================== */
@@ -199,7 +196,6 @@ router.get('/customers', async (req, res) => {
     });
   }
 });
-
 
 router.post('/customers', async (req, res) => {
   try {
@@ -255,7 +251,6 @@ router.post('/customers', async (req, res) => {
   }
 });
 
-
 router.patch(
   '/customers/:id',
   async (req, res) => {
@@ -279,6 +274,58 @@ router.patch(
               data.assignedSalesperson
             );
         }
+      }
+
+      /*
+       * Quotation amount revision tracking.
+       * Preserve the first quotation amount as the
+       * original amount and record revision details.
+       */
+      if (
+        Object.prototype.hasOwnProperty.call(
+          data,
+          'quotationAmount'
+        )
+      ) {
+        const existingCustomer =
+          await Customer.findById(
+            req.params.id
+          );
+
+        if (!existingCustomer) {
+          return res.status(404).json({
+            message:
+              'Customer not found.'
+          });
+        }
+
+        const newQuotationAmount =
+          Number(
+            data.quotationAmount || 0
+          );
+
+        if (
+          existingCustomer.originalQuotationAmount ===
+            undefined ||
+          existingCustomer.originalQuotationAmount ===
+            null
+        ) {
+          data.originalQuotationAmount =
+            existingCustomer.quotationAmount || 0;
+        }
+
+        if (
+          newQuotationAmount !==
+          Number(
+            existingCustomer.quotationAmount || 0
+          )
+        ) {
+          data.quotationAmountUpdatedAt =
+            new Date();
+        }
+
+        data.quotationAmount =
+          newQuotationAmount;
       }
 
       const customer =
@@ -309,7 +356,6 @@ router.patch(
   }
 );
 
-
 /* ========================================================
    FOLLOW-UPS
    ======================================================== */
@@ -332,7 +378,6 @@ router.get('/followups', async (req, res) => {
     });
   }
 });
-
 
 router.post('/followups', async (req, res) => {
   try {
@@ -380,13 +425,6 @@ router.post('/followups', async (req, res) => {
 
     /*
      * Resolve salesperson against master.
-     * This fixes values such as:
-     *
-     * "shikhar "
-     * "Shikhar"
-     * "SHIKHAR"
-     *
-     * to the official master name.
      */
     if (data.salesperson) {
       const salesperson =
@@ -406,18 +444,8 @@ router.post('/followups', async (req, res) => {
     }
 
     /*
-     * ====================================================
      * DUPLICATE PROTECTION
-     * ====================================================
-     *
-     * Don't create another pending follow-up for
-     * the same customer, salesperson, date/time and type
-     * when the previous one was created within 30 seconds.
-     *
-     * This protects against double-clicks and repeated
-     * browser submissions.
      */
-
     const dueDate =
       new Date(data.dueAt);
 
@@ -481,7 +509,6 @@ router.post('/followups', async (req, res) => {
   }
 });
 
-
 router.patch(
   '/followups/:id',
   async (req, res) => {
@@ -525,7 +552,6 @@ router.patch(
     }
   }
 );
-
 
 /* ========================================================
    DASHBOARD SUMMARY
@@ -620,6 +646,5 @@ router.get('/summary', async (req, res) => {
     });
   }
 });
-
 
 module.exports = router;
