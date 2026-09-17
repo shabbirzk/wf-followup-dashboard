@@ -590,11 +590,24 @@ const conversionPercentage =
               .toLowerCase()
               .includes(search);
 
+          const customerStatus =
+            String(followUp.customer?.status || "").trim();
+
+          const customerStatuses = [
+            "New",
+            "Contacted",
+            "Quoted",
+            "Negotiation",
+            "Converted",
+            "Lost",
+            "Active"
+          ];
+
           const matchesStatus =
-            followUpStatusFilter ===
-              "All" ||
-            followUp.status ===
-              followUpStatusFilter;
+            followUpStatusFilter === "All" ||
+            (customerStatuses.includes(followUpStatusFilter)
+              ? customerStatus === followUpStatusFilter
+              : followUp.status === followUpStatusFilter);
 
           const matchesSalesperson =
             followUpSalespersonFilter ===
