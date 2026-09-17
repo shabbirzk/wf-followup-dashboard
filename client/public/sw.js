@@ -1,4 +1,3 @@
-
 self.addEventListener('push', (event) => {
   let data = {};
 
