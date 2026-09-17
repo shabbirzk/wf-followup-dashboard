@@ -32,8 +32,29 @@ self.addEventListener('push', (event) => {
         data.url ||
         `/?tab=followups&followupId=${encodeURIComponent(
           data.followupId || ''
-        )}`
+        )}`,
+
+      followupId:
+        data.followupId || '',
+
+      customerId:
+        data.customerId || ''
     },
+
+    actions: [
+      {
+        action: 'snooze',
+        title: 'Snooze 10 min'
+      },
+      {
+        action: 'complete',
+        title: 'Complete'
+      },
+      {
+        action: 'dismiss',
+        title: 'Dismiss'
+      }
+    ],
 
     requireInteraction: true
   };
@@ -46,13 +67,99 @@ self.addEventListener('push', (event) => {
   );
 });
 
+
 self.addEventListener(
   'notificationclick',
   (event) => {
-    event.notification.close();
 
+    const notification =
+      event.notification;
+
+    const action =
+      event.action;
+
+    const notificationData =
+      notification.data || {};
+
+    notification.close();
+
+    /*
+     * DISMISS
+     * Simply closes the notification.
+     */
+    if (action === 'dismiss') {
+      return;
+    }
+
+    /*
+     * SNOOZE
+     * This currently sends the action to any
+     * open CRM window.
+     *
+     * Backend connection will be added next
+     * so the reminder is actually postponed.
+     */
+    if (action === 'snooze') {
+      event.waitUntil(
+        clients
+          .matchAll({
+            type: 'window',
+            includeUncontrolled: true
+          })
+          .then((clientList) => {
+
+            clientList.forEach((client) => {
+              client.postMessage({
+                type: 'FOLLOWUP_SNOOZE',
+                followupId:
+                  notificationData.followupId,
+                minutes: 10
+              });
+            });
+
+          })
+      );
+
+      return;
+    }
+
+    /*
+     * COMPLETE
+     * This currently sends the action to any
+     * open CRM window.
+     *
+     * Backend connection will be added next
+     * so the follow-up is actually completed.
+     */
+    if (action === 'complete') {
+      event.waitUntil(
+        clients
+          .matchAll({
+            type: 'window',
+            includeUncontrolled: true
+          })
+          .then((clientList) => {
+
+            clientList.forEach((client) => {
+              client.postMessage({
+                type: 'FOLLOWUP_COMPLETE',
+                followupId:
+                  notificationData.followupId
+              });
+            });
+
+          })
+      );
+
+      return;
+    }
+
+    /*
+     * Clicking the notification itself
+     * opens the relevant follow-up.
+     */
     const targetUrl =
-      event.notification?.data?.url ||
+      notificationData.url ||
       '/?tab=followups';
 
     event.waitUntil(
@@ -62,10 +169,12 @@ self.addEventListener(
           includeUncontrolled: true
         })
         .then((clientList) => {
+
           for (
             const client of clientList
           ) {
             if ('focus' in client) {
+
               client.navigate(
                 targetUrl
               );
