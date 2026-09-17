@@ -703,7 +703,16 @@ const conversionPercentage =
     }
   };
 
+  const isCustomerEditDisabled = (customer) => {
+    const status = String(customer?.status || '').trim().toLowerCase();
+    return ['completed', 'complete', 'converted'].includes(status);
+  };
+
   const openCustomerEdit = (customer) => {
+    if (isCustomerEditDisabled(customer)) {
+      return;
+    }
+
     setEditingCustomer({
       ...customer,
       quotationAmount: customer.quotationAmount ?? 0,
@@ -2369,6 +2378,9 @@ const conversionPercentage =
                                 className="btn btn-secondary"
                                 onClick={() =>
                                   openCustomerEdit(customer)
+                                }
+                                disabled={
+                                  isCustomerEditDisabled(customer)
                                 }
                               >
                                 Edit
