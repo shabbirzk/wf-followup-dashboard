@@ -273,28 +273,14 @@ function App() {
       setLoading(true);
 
       const [
-        summaryResponse,
         customersResponse,
         followUpsResponse,
         salespersonsResponse
       ] = await Promise.all([
-        axios.get(`${API}/summary`),
         axios.get(`${API}/customers`),
         axios.get(`${API}/followups`),
         axios.get(`${API}/salespersons`)
       ]);
-
-      setSummary(
-        summaryResponse.data || {
-          customers: 0,
-          pending: 0,
-          today: 0,
-          overdue: 0,
-          completed: 0,
-          converted: 0,
-          quotationAmount: 0
-        }
-      );
 
       setCustomers(
         customersResponse.data || []
