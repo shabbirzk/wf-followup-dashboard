@@ -439,6 +439,17 @@ const conversionPercentage =
         0
       );
 
+    const convertedAmount =
+      convertedCustomers.reduce(
+        (total, customer) =>
+          total +
+          Number(
+            customer.quotationAmount ||
+              0
+          ),
+        0
+      );
+
     return {
       customers:
         filteredDashboardCustomers.length,
@@ -461,7 +472,9 @@ const conversionPercentage =
       conversionPercentage,
 
       quotationAmount:
-        quotationValue
+        quotationValue,
+
+      convertedAmount
     };
   }, [
     customers,
@@ -1377,6 +1390,17 @@ const conversionPercentage =
                 )}`}
               />
 
+              <StatCard
+                title="Converted Amount"
+                value={`AED ${dashboardStats.convertedAmount.toLocaleString(
+                  "en-AE",
+                  {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 2
+                  }
+                )}`}
+              />
+
             </div>
 
             {/* DASHBOARD SUMMARY */}
@@ -1486,6 +1510,19 @@ const conversionPercentage =
                     <strong>
                       AED{" "}
                       {dashboardStats.quotationAmount.toLocaleString(
+                        "en-AE"
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="summary-row">
+                    <span>
+                      Converted Amount
+                    </span>
+
+                    <strong>
+                      AED{" "}
+                      {dashboardStats.convertedAmount.toLocaleString(
                         "en-AE"
                       )}
                     </strong>
