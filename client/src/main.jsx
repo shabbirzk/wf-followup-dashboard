@@ -3357,7 +3357,14 @@ function App() {
 
             <form onSubmit={saveCustomerEdit}>
               <div className="form-group">
-                <label>Customer Name</label>
+                <label
+                  style={{
+                    color: "#111111",
+                    fontWeight: 700
+                  }}
+                >
+                  Customer Name
+                </label>
                 <input
                   value={editingCustomer.name || ''}
                   disabled
@@ -3367,7 +3374,14 @@ function App() {
               {/* CUSTOMER STATUS */}
 
               <div className="form-group">
-                <label>Customer Status</label>
+                <label
+                  style={{
+                    color: "#111111",
+                    fontWeight: 700
+                  }}
+                >
+                  Customer Status
+                </label>
 
                 <select
                   name="status"
@@ -3415,7 +3429,14 @@ function App() {
               </div>
 
               <div className="form-group">
-                <label>Original Quotation Amount</label>
+                <label
+                  style={{
+                    color: "#111111",
+                    fontWeight: 700
+                  }}
+                >
+                  Original Quotation Amount
+                </label>
                 <input
                   type="number"
                   value={editingCustomer.originalQuotationAmount || 0}
@@ -3424,7 +3445,14 @@ function App() {
               </div>
 
               <div className="form-group">
-                <label>Revised Quotation Amount</label>
+                <label
+                  style={{
+                    color: "#111111",
+                    fontWeight: 700
+                  }}
+                >
+                  Revised Quotation Amount
+                </label>
                 <input
                   type="number"
                   min="0"
@@ -3440,7 +3468,14 @@ function App() {
               </div>
 
               <div className="form-group">
-                <label>Revision Remark</label>
+                <label
+                  style={{
+                    color: "#111111",
+                    fontWeight: 700
+                  }}
+                >
+                  Revision Remark
+                </label>
                 <textarea
                   value={editingCustomer.quotationRevisionRemark || ''}
                   onChange={(e) =>
