@@ -156,7 +156,7 @@ function App() {
     useState([]);
 
   const [loading, setLoading] =
-    useState(false);
+    useState(true);
 
   /* =====================================================
      DASHBOARD SALESPERSON FILTER
@@ -255,6 +255,29 @@ function App() {
     useState(false);
 
   /* =====================================================
+     SALESPERSON-WISE REMINDERS
+  ===================================================== */
+
+  const [notificationSalesperson, setNotificationSalesperson] =
+    useState(() =>
+      localStorage.getItem(
+        "wfNotificationSalesperson"
+      ) || ""
+    );
+
+  const [notificationsEnabled, setNotificationsEnabled] =
+    useState(false);
+
+  const [notificationMessage, setNotificationMessage] =
+    useState("");
+
+  const [reminderFollowUps, setReminderFollowUps] =
+    useState([]);
+
+  const [highlightedFollowUpId, setHighlightedFollowUpId] =
+    useState("");
+
+  /* =====================================================
      FILTERS
   ===================================================== */
 
@@ -280,6 +303,7 @@ function App() {
 
   const loadData = async () => {
     try {
+      setLoading(true);
 
       const [
         customersResponse,
@@ -320,6 +344,272 @@ function App() {
   useEffect(() => {
     loadData();
   }, []);
+
+  /* =====================================================
+     SALESPERSON-WISE REMINDER SETUP
+  ===================================================== */
+
+  const urlBase64ToUint8Array = (base64String) => {
+    const padding = "=".repeat(
+      (4 - (base64String.length % 4)) % 4
+    );
+
+    const base64 =
+      (base64String + padding)
+        .replace(/-/g, "+")
+        .replace(/_/g, "/");
+
+    const rawData = window.atob(base64);
+
+    return Uint8Array.from(
+      [...rawData].map((char) =>
+        char.charCodeAt(0)
+      )
+    );
+  };
+
+  const enableNotifications = async () => {
+    if (!notificationSalesperson) {
+      alert(
+        "Please select a salesperson before enabling reminders."
+      );
+      return;
+    }
+
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      alert(
+        "Browser notifications are not supported in this browser."
+      );
+      return;
+    }
+
+    try {
+      const permission =
+        await Notification.requestPermission();
+
+      if (permission !== "granted") {
+        alert(
+          "Notification permission was not granted."
+        );
+        return;
+      }
+
+      const registration =
+        await navigator.serviceWorker.register("/sw.js");
+
+      const vapidResponse =
+        await axios.get(
+          `${API}/notifications/vapid-public-key`
+        );
+
+      const applicationServerKey =
+        urlBase64ToUint8Array(
+          vapidResponse.data.publicKey
+        );
+
+      let subscription =
+        await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription =
+          await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey
+          });
+      }
+
+      await axios.post(
+        `${API}/notifications/subscribe`,
+        {
+          salesperson: notificationSalesperson,
+          subscription: subscription.toJSON()
+        }
+      );
+
+      localStorage.setItem(
+        "wfNotificationSalesperson",
+        notificationSalesperson
+      );
+
+      setNotificationsEnabled(true);
+      setNotificationMessage(
+        `Reminders enabled for ${notificationSalesperson}.`
+      );
+    } catch (error) {
+      console.error(
+        "Notification setup error:",
+        error
+      );
+
+      alert(
+        error.response?.data?.message ||
+          "Unable to enable follow-up reminders."
+      );
+    }
+  };
+
+  const disableNotifications = async () => {
+    try {
+      const registration =
+        await navigator.serviceWorker.getRegistration("/");
+
+      const subscription =
+        await registration?.pushManager.getSubscription();
+
+      if (subscription) {
+        await axios.delete(
+          `${API}/notifications/subscribe`,
+          {
+            data: {
+              endpoint: subscription.endpoint
+            }
+          }
+        );
+
+        await subscription.unsubscribe();
+      }
+
+      setNotificationsEnabled(false);
+      setNotificationMessage("");
+    } catch (error) {
+      console.error(
+        "Notification disable error:",
+        error
+      );
+    }
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(
+      window.location.search
+    );
+
+    const tab = params.get("tab");
+    const followupId =
+      params.get("followupId");
+
+    if (tab === "followups") {
+      setActiveTab("followups");
+    }
+
+    if (followupId) {
+      setHighlightedFollowUpId(
+        followupId
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!followUps.length) {
+      setReminderFollowUps([]);
+      return;
+    }
+
+    const checkReminders = () => {
+      const now = Date.now();
+      const reminders = followUps.filter(
+        (followUp) => {
+          if (followUp.status !== "Pending") {
+            return false;
+          }
+
+          const customerStatus =
+            normalizeName(
+              followUp.customer?.status
+            );
+
+          if (
+            customerStatus === "converted" ||
+            customerStatus === "completed"
+          ) {
+            return false;
+          }
+
+          if (!followUp.dueAt) {
+            return false;
+          }
+
+          const dueTime =
+            new Date(followUp.dueAt).getTime();
+
+          if (Number.isNaN(dueTime) || dueTime > now) {
+            return false;
+          }
+
+          const key =
+            `wf-followup-reminder-${followUp._id}-${followUp.dueAt}`;
+
+          if (localStorage.getItem(key)) {
+            return false;
+          }
+
+          if (!notificationSalesperson) {
+            return false;
+          }
+
+          if (
+            normalizeName(followUp.salesperson) !==
+            normalizeName(notificationSalesperson)
+          ) {
+            return false;
+          }
+
+          return true;
+        }
+      );
+
+      if (reminders.length) {
+        reminders.forEach((followUp) => {
+          localStorage.setItem(
+            `wf-followup-reminder-${followUp._id}-${followUp.dueAt}`,
+            "1"
+          );
+        });
+
+        setReminderFollowUps(
+          reminders
+        );
+      }
+    };
+
+    checkReminders();
+
+    const timer = setInterval(
+      checkReminders,
+      30000
+    );
+
+    return () =>
+      clearInterval(timer);
+  }, [
+    followUps,
+    notificationSalesperson
+  ]);
+
+  useEffect(() => {
+    if (!highlightedFollowUpId) {
+      return;
+    }
+
+    setActiveTab("followups");
+
+    const timer = setTimeout(() => {
+      document
+        .getElementById(
+          `followup-row-${highlightedFollowUpId}`
+        )
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "center"
+        });
+    }, 300);
+
+    return () =>
+      clearTimeout(timer);
+  }, [
+    highlightedFollowUpId,
+    followUps
+  ]);
 
   /* =====================================================
      DASHBOARD CALCULATIONS
@@ -411,17 +701,15 @@ function App() {
           customer.status ===
           "Converted"
       );
-
-    /* CONVERSION */
-
-    const conversionPercentage =
-      filteredDashboardCustomers.length === 0
-        ? 0
-        : (
-            (convertedCustomers.length /
-              filteredDashboardCustomers.length) *
-            100
-          ).toFixed(1);
+/* CONVERSION*/
+const conversionPercentage =
+  filteredDashboardCustomers.length === 0
+    ? 0
+    : (
+        (convertedCustomers.length /
+          filteredDashboardCustomers.length) *
+        100
+      ).toFixed(1);
 
     /* QUOTATION */
 
@@ -618,8 +906,7 @@ function App() {
             "Negotiation",
             "Converted",
             "Lost",
-            "Active",
-            "Not Interested"
+            "Active"
           ];
 
           const matchesStatus =
@@ -1229,6 +1516,20 @@ function App() {
     };
 
   /* =====================================================
+     LOADING
+  ===================================================== */
+
+  if (loading) {
+    return (
+      <div className="app">
+        <div className="loading">
+          Loading dashboard...
+        </div>
+      </div>
+    );
+  }
+
+  /* =====================================================
      RENDER
   ===================================================== */
 
@@ -1251,12 +1552,75 @@ function App() {
           </p>
         </div>
 
-        <button
-          className="btn btn-secondary"
-          onClick={loadData}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            flexWrap: "wrap",
+            justifyContent: "flex-end"
+          }}
         >
-          Refresh
-        </button>
+
+          <select
+            value={notificationSalesperson}
+            onChange={(e) => {
+              setNotificationSalesperson(
+                e.target.value
+              );
+              setNotificationsEnabled(false);
+              setNotificationMessage("");
+            }}
+            style={{
+              padding: "9px 12px",
+              borderRadius: "6px",
+              border: "1px solid #ccc",
+              minWidth: "180px"
+            }}
+          >
+            <option value="">
+              Reminder Salesperson
+            </option>
+
+            {salespersons
+              .filter(
+                (salesperson) =>
+                  salesperson.status === "Active"
+              )
+              .map((salesperson) => (
+                <option
+                  key={salesperson._id}
+                  value={salesperson.name}
+                >
+                  {salesperson.name}
+                </option>
+              ))}
+          </select>
+
+          {notificationsEnabled ? (
+            <button
+              className="btn btn-secondary"
+              onClick={disableNotifications}
+            >
+              🔔 {notificationSalesperson}
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary"
+              onClick={enableNotifications}
+            >
+              🔔 Enable Notifications
+            </button>
+          )}
+
+          <button
+            className="btn btn-secondary"
+            onClick={loadData}
+          >
+            Refresh
+          </button>
+
+        </div>
 
       </header>
 
@@ -1355,6 +1719,8 @@ function App() {
                 </p>
               </div>
 
+              {/* SALESPERSON FILTER */}
+
               <div className="dashboard-filter">
 
                 <label>
@@ -1402,6 +1768,8 @@ function App() {
               </div>
 
             </div>
+
+            {/* KPI CARDS */}
 
             <div className="stats-grid">
 
@@ -1475,6 +1843,8 @@ function App() {
               />
 
             </div>
+
+            {/* DASHBOARD SUMMARY */}
 
             <div className="dashboard-grid">
 
@@ -1666,6 +2036,8 @@ function App() {
 
                 </div>
 
+                {/* PHONE */}
+
                 <div className="form-group">
 
                   <label>
@@ -1684,6 +2056,8 @@ function App() {
                   />
 
                 </div>
+
+                {/* EDITABLE LOCATION COMBO */}
 
                 <div className="form-group">
 
@@ -2145,10 +2519,6 @@ function App() {
                       Active
                     </option>
 
-                    <option value="Not Interested">
-                      Not Interested
-                    </option>
-
                   </select>
 
                 </div>
@@ -2305,7 +2675,6 @@ function App() {
                         </td>
 
                       </tr>
-
                     ) : (
                       filteredCustomers.map(
                         (customer) => (
@@ -2458,6 +2827,8 @@ function App() {
                   saveFollowUp
                 }
               >
+
+                {/* CUSTOMER SEARCH */}
 
                 <div
                   className="form-group"
@@ -2907,10 +3278,6 @@ function App() {
                     Active
                   </option>
 
-                  <option value="Not Interested">
-                    Not Interested
-                  </option>
-
                 </select>
 
                 <select
@@ -3119,9 +3486,15 @@ function App() {
                               key={
                                 followUp._id
                               }
+                              id={
+                                `followup-row-${followUp._id}`
+                              }
                               className={
                                 overdue
                                   ? "overdue-row"
+                                  : highlightedFollowUpId ===
+                                    followUp._id
+                                  ? "highlighted-row"
                                   : ""
                               }
                             >
@@ -3335,86 +3708,15 @@ function App() {
 
             <form onSubmit={saveCustomerEdit}>
               <div className="form-group">
-                <label
-                  style={{
-                    color: "#111111",
-                    fontWeight: 700
-                  }}
-                >
-                  Customer Name
-                </label>
+                <label>Customer Name</label>
                 <input
                   value={editingCustomer.name || ''}
                   disabled
                 />
               </div>
 
-              {/* CUSTOMER STATUS */}
-
               <div className="form-group">
-                <label
-                  style={{
-                    color: "#111111",
-                    fontWeight: 700
-                  }}
-                >
-                  Customer Status
-                </label>
-
-                <select
-                  name="status"
-                  value={editingCustomer.status || "New"}
-                  onChange={(e) =>
-                    setEditingCustomer((prev) => ({
-                      ...prev,
-                      status: e.target.value
-                    }))
-                  }
-                  disabled={savingCustomerEdit}
-                >
-                  <option value="New">
-                    New
-                  </option>
-
-                  <option value="Contacted">
-                    Contacted
-                  </option>
-
-                  <option value="Quoted">
-                    Quoted
-                  </option>
-
-                  <option value="Negotiation">
-                    Negotiation
-                  </option>
-
-                  <option value="Converted">
-                    Converted
-                  </option>
-
-                  <option value="Lost">
-                    Lost
-                  </option>
-
-                  <option value="Active">
-                    Active
-                  </option>
-
-                  <option value="Not Interested">
-                    Not Interested
-                  </option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label
-                  style={{
-                    color: "#111111",
-                    fontWeight: 700
-                  }}
-                >
-                  Original Quotation Amount
-                </label>
+                <label>Original Quotation Amount</label>
                 <input
                   type="number"
                   value={editingCustomer.originalQuotationAmount || 0}
@@ -3423,14 +3725,7 @@ function App() {
               </div>
 
               <div className="form-group">
-                <label
-                  style={{
-                    color: "#111111",
-                    fontWeight: 700
-                  }}
-                >
-                  Revised Quotation Amount
-                </label>
+                <label>Revised Quotation Amount</label>
                 <input
                   type="number"
                   min="0"
@@ -3446,14 +3741,7 @@ function App() {
               </div>
 
               <div className="form-group">
-                <label
-                  style={{
-                    color: "#111111",
-                    fontWeight: 700
-                  }}
-                >
-                  Revision Remark
-                </label>
+                <label>Revision Remark</label>
                 <textarea
                   value={editingCustomer.quotationRevisionRemark || ''}
                   onChange={(e) =>
@@ -3837,6 +4125,115 @@ function App() {
 
           </div>
 
+        </div>
+      )}
+
+      {notificationMessage && (
+        <div
+          style={{
+            position: "fixed",
+            top: "20px",
+            right: "20px",
+            zIndex: 9999,
+            background: "#111",
+            color: "#fff",
+            padding: "12px 16px",
+            borderRadius: "8px",
+            boxShadow: "0 6px 20px rgba(0,0,0,0.2)",
+            maxWidth: "360px"
+          }}
+        >
+          {notificationMessage}
+        </div>
+      )}
+
+      {reminderFollowUps.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            zIndex: 9998,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px"
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "10px",
+              width: "100%",
+              maxWidth: "560px",
+              padding: "24px",
+              boxShadow: "0 12px 40px rgba(0,0,0,0.25)"
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>
+              🔔 Follow-up Reminder
+            </h2>
+
+            {reminderFollowUps.map((followUp) => (
+              <div
+                key={followUp._id}
+                style={{
+                  padding: "12px",
+                  border: "1px solid #ddd",
+                  borderRadius: "8px",
+                  marginBottom: "10px"
+                }}
+              >
+                <strong>
+                  {followUp.customer?.name || "Customer"}
+                </strong>
+
+                <div style={{ marginTop: "5px" }}>
+                  {fmt(followUp.dueAt)}
+                </div>
+
+                <div style={{ marginTop: "5px" }}>
+                  {followUp.type || "Call"}
+                  {followUp.salesperson
+                    ? ` • ${followUp.salesperson}`
+                    : ""}
+                </div>
+              </div>
+            ))}
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px"
+              }}
+            >
+              <button
+                className="btn btn-secondary"
+                onClick={() =>
+                  setReminderFollowUps([])
+                }
+              >
+                Dismiss
+              </button>
+
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  const first =
+                    reminderFollowUps[0];
+
+                  setActiveTab("followups");
+                  setHighlightedFollowUpId(
+                    first?._id || ""
+                  );
+                  setReminderFollowUps([]);
+                }}
+              >
+                View Follow-up
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
