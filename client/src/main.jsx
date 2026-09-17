@@ -3097,8 +3097,12 @@ const conversionPercentage =
                                       )
                                     }
                                     disabled={
-                                      followUp.status ===
-                                      "Completed"
+                                      [
+                                        "Completed",
+                                        "Converted"
+                                      ].includes(
+                                        followUp.status
+                                      )
                                     }
                                   >
                                     Edit
