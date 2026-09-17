@@ -2974,6 +2974,14 @@ const conversionPercentage =
                               followUp.dueAt
                             );
 
+                          const isFollowUpEditDisabled =
+                            ["Completed", "Converted"].includes(
+                              String(followUp.status || "").trim()
+                            ) ||
+                            ["Completed", "Converted"].includes(
+                              String(followUp.customer?.status || "").trim()
+                            );
+
                           return (
                             <tr
                               key={
@@ -3097,12 +3105,7 @@ const conversionPercentage =
                                       )
                                     }
                                     disabled={
-                                      [
-                                        "Completed",
-                                        "Converted"
-                                      ].includes(
-                                        followUp.status
-                                      )
+                                      isFollowUpEditDisabled
                                     }
                                   >
                                     Edit
