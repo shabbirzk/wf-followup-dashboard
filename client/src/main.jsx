@@ -2297,7 +2297,7 @@ const conversionPercentage =
                       <tr>
 
                         <td
-                          colSpan="10"
+                          colSpan="11"
                           className="empty"
                         >
                           No customers
@@ -2985,6 +2985,10 @@ const conversionPercentage =
                       </th>
 
                       <th>
+                        Customer Status
+                      </th>
+
+                      <th>
                         Follow-up Status
                       </th>
 
@@ -3170,6 +3174,17 @@ const conversionPercentage =
 
                                 <Badge>
                                   {followUpStage}
+                                </Badge>
+
+                              </td>
+
+                              <td>
+
+                                <Badge>
+                                  {
+                                    followUp.customer?.status ||
+                                    "-"
+                                  }
                                 </Badge>
 
                               </td>
