@@ -2981,7 +2981,11 @@ const conversionPercentage =
                       </th>
 
                       <th>
-                        Status
+                        Follow-up Stage
+                      </th>
+
+                      <th>
+                        Follow-up Status
                       </th>
 
                       <th>
@@ -3007,7 +3011,7 @@ const conversionPercentage =
                       <tr>
 
                         <td
-                          colSpan="9"
+                          colSpan="10"
                           className="empty"
                         >
                           No follow-ups
@@ -3034,6 +3038,54 @@ const conversionPercentage =
                             ["Completed", "Converted"].includes(
                               String(followUp.customer?.status || "").trim()
                             );
+
+                          const customerKey =
+                            followUp.customer?._id ||
+                            followUp.customer?.customerCode ||
+                            followUp.customer?.name ||
+                            followUp.customerName ||
+                            "";
+
+                          const customerFollowUps =
+                            followUps
+                              .filter((item) => {
+                                const itemCustomerKey =
+                                  item.customer?._id ||
+                                  item.customer?.customerCode ||
+                                  item.customer?.name ||
+                                  item.customerName ||
+                                  "";
+
+                                return (
+                                  itemCustomerKey ===
+                                  customerKey
+                                );
+                              })
+                              .sort(
+                                (a, b) =>
+                                  new Date(a.dueAt) -
+                                  new Date(b.dueAt)
+                              );
+
+                          const followUpStageIndex =
+                            customerFollowUps.findIndex(
+                              (item) =>
+                                item._id ===
+                                followUp._id
+                            );
+
+                          const followUpStage =
+                            followUpStageIndex >= 0
+                              ? `${followUpStageIndex + 1}${
+                                  followUpStageIndex + 1 === 1
+                                    ? "st"
+                                    : followUpStageIndex + 1 === 2
+                                    ? "nd"
+                                    : followUpStageIndex + 1 === 3
+                                    ? "rd"
+                                    : "th"
+                                } Follow-up`
+                              : "Follow-up";
 
                           return (
                             <tr
@@ -3116,6 +3168,14 @@ const conversionPercentage =
 
                               <td>
 
+                                <Badge>
+                                  {followUpStage}
+                                </Badge>
+
+                              </td>
+
+                              <td>
+
                                 <Badge
                                   type={
                                     followUp.status ===
@@ -3125,7 +3185,8 @@ const conversionPercentage =
                                   }
                                 >
                                   {
-                                    followUp.status
+                                    followUp.status ||
+                                    "Pending"
                                   }
                                 </Badge>
 
