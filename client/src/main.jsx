@@ -590,8 +590,25 @@ const conversionPercentage =
               .toLowerCase()
               .includes(search);
 
+          const masterCustomer =
+            customers.find((customer) =>
+              (followUp.customer?._id &&
+                customer._id === followUp.customer._id) ||
+              (followUp.customer?.customerCode &&
+                customer.customerCode === followUp.customer.customerCode) ||
+              (!followUp.customer?._id &&
+                !followUp.customer?.customerCode &&
+                followUp.customer?.name &&
+                normalizeName(customer.name) === normalizeName(followUp.customer.name))
+            );
+
           const customerStatus =
-            String(followUp.customer?.status || "").trim();
+            String(
+              masterCustomer?.status ||
+              followUp.customer?.status ||
+              followUp.customerStatus ||
+              ""
+            ).trim();
 
           const customerStatuses = [
             "New",
@@ -630,7 +647,8 @@ const conversionPercentage =
       followUps,
       followUpSearch,
       followUpStatusFilter,
-      followUpSalespersonFilter
+      followUpSalespersonFilter,
+      customers
     ]);
 
   /* =====================================================
@@ -3015,7 +3033,7 @@ const conversionPercentage =
                       <tr>
 
                         <td
-                          colSpan="10"
+                          colSpan="11"
                           className="empty"
                         >
                           No follow-ups
@@ -3042,6 +3060,26 @@ const conversionPercentage =
                             ["Completed", "Converted"].includes(
                               String(followUp.customer?.status || "").trim()
                             );
+
+                          const masterCustomer =
+                            customers.find((customer) =>
+                              (followUp.customer?._id &&
+                                customer._id === followUp.customer._id) ||
+                              (followUp.customer?.customerCode &&
+                                customer.customerCode === followUp.customer.customerCode) ||
+                              (!followUp.customer?._id &&
+                                !followUp.customer?.customerCode &&
+                                followUp.customer?.name &&
+                                normalizeName(customer.name) === normalizeName(followUp.customer.name))
+                            );
+
+                          const customerStatus =
+                            String(
+                              masterCustomer?.status ||
+                              followUp.customer?.status ||
+                              followUp.customerStatus ||
+                              "-"
+                            ).trim();
 
                           const customerKey =
                             followUp.customer?._id ||
@@ -3182,7 +3220,7 @@ const conversionPercentage =
 
                                 <Badge>
                                   {
-                                    followUp.customer?.status ||
+                                    customerStatus ||
                                     "-"
                                   }
                                 </Badge>
