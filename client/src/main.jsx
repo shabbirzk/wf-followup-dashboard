@@ -189,6 +189,16 @@ function App() {
     useState(false);
 
   /* =====================================================
+     CUSTOMER EDIT
+  ===================================================== */
+
+  const [editingCustomer, setEditingCustomer] =
+    useState(null);
+
+  const [savingCustomerEdit, setSavingCustomerEdit] =
+    useState(false);
+
+  /* =====================================================
      SALESPERSON FORM
   ===================================================== */
 
@@ -690,6 +700,59 @@ const conversionPercentage =
       );
     } finally {
       setSavingCustomer(false);
+    }
+  };
+
+  const openCustomerEdit = (customer) => {
+    setEditingCustomer({
+      ...customer,
+      quotationAmount: customer.quotationAmount ?? 0,
+      originalQuotationAmount:
+        customer.originalQuotationAmount ??
+        customer.quotationAmount ??
+        0,
+      quotationRevisionRemark:
+        customer.quotationRevisionRemark || ''
+    });
+  };
+
+  const saveCustomerEdit = async (e) => {
+    e.preventDefault();
+
+    if (!editingCustomer) return;
+
+    try {
+      setSavingCustomerEdit(true);
+
+      const response = await axios.patch(
+        `${API}/customers/${editingCustomer._id}`,
+        {
+          ...editingCustomer,
+          quotationAmount: Number(
+            editingCustomer.quotationAmount || 0
+          )
+        }
+      );
+
+      setCustomers((prev) =>
+        prev.map((customer) =>
+          customer._id === response.data._id
+            ? response.data
+            : customer
+        )
+      );
+
+      setEditingCustomer(null);
+      await loadData();
+      alert('Customer updated successfully.');
+    } catch (error) {
+      console.error(error);
+      alert(
+        error.response?.data?.message ||
+          'Failed to update customer.'
+      );
+    } finally {
+      setSavingCustomerEdit(false);
     }
   };
 
@@ -2197,6 +2260,10 @@ const conversionPercentage =
                       <th>
                         Quotation
                       </th>
+
+                      <th>
+                        Action
+                      </th>
                     </tr>
 
                   </thead>
@@ -2208,7 +2275,7 @@ const conversionPercentage =
                       <tr>
 
                         <td
-                          colSpan="9"
+                          colSpan="10"
                           className="empty"
                         >
                           No customers
@@ -2294,6 +2361,18 @@ const conversionPercentage =
                                   maximumFractionDigits: 2
                                 }
                               )}
+                            </td>
+
+                            <td>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() =>
+                                  openCustomerEdit(customer)
+                                }
+                              >
+                                Edit
+                              </button>
                             </td>
 
                           </tr>
@@ -3069,6 +3148,93 @@ const conversionPercentage =
         )}
 
       </main>
+
+      {/* =================================================
+          CUSTOMER EDIT MODAL
+      ================================================= */}
+
+      {editingCustomer && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setEditingCustomer(null);
+            }
+          }}
+        >
+          <div className="modal-card">
+            <div className="card-header">
+              <h3>Edit Customer</h3>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setEditingCustomer(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <form onSubmit={saveCustomerEdit}>
+              <div className="form-group">
+                <label>Customer Name</label>
+                <input
+                  value={editingCustomer.name || ''}
+                  disabled
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Original Quotation Amount</label>
+                <input
+                  type="number"
+                  value={editingCustomer.originalQuotationAmount || 0}
+                  disabled
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Revised Quotation Amount</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editingCustomer.quotationAmount ?? 0}
+                  onChange={(e) =>
+                    setEditingCustomer((prev) => ({
+                      ...prev,
+                      quotationAmount: e.target.value
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Revision Remark</label>
+                <textarea
+                  value={editingCustomer.quotationRevisionRemark || ''}
+                  onChange={(e) =>
+                    setEditingCustomer((prev) => ({
+                      ...prev,
+                      quotationRevisionRemark: e.target.value
+                    }))
+                  }
+                  placeholder="Enter reason for quotation revision"
+                />
+              </div>
+
+              <div className="form-actions">
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={savingCustomerEdit}
+                >
+                  {savingCustomerEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* =================================================
           FOLLOW-UP EDIT MODAL
