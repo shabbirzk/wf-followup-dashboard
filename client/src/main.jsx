@@ -2867,6 +2867,34 @@ const conversionPercentage =
                     Completed
                   </option>
 
+                  <option value="New">
+                    New
+                  </option>
+
+                  <option value="Contacted">
+                    Contacted
+                  </option>
+
+                  <option value="Quoted">
+                    Quoted
+                  </option>
+
+                  <option value="Negotiation">
+                    Negotiation
+                  </option>
+
+                  <option value="Converted">
+                    Converted
+                  </option>
+
+                  <option value="Lost">
+                    Lost
+                  </option>
+
+                  <option value="Active">
+                    Active
+                  </option>
+
                 </select>
 
                 <select
