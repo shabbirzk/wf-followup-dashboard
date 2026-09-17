@@ -75,6 +75,21 @@ const CustomerSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0
+    },
+
+    originalQuotationAmount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    quotationRevisionRemark: {
+      type: String,
+      trim: true
+    },
+
+    quotationAmountUpdatedAt: {
+      type: Date
     }
   },
   {
