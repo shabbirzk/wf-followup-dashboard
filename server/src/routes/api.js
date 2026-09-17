@@ -21,6 +21,14 @@ const VAPID_SUBJECT =
   process.env.VAPID_SUBJECT ||
   'mailto:admin@example.com';
 
+/*
+ * Public API URL used by the service worker for
+ * notification actions such as Snooze and Complete.
+ */
+const PUBLIC_API_URL =
+  process.env.PUBLIC_API_URL ||
+  'https://wf-followup-api1.onrender.com/api';
+
 if (
   VAPID_PUBLIC_KEY &&
   VAPID_PRIVATE_KEY
@@ -517,7 +525,14 @@ const checkDueFollowUpReminders =
                 String(
                   followup._id
                 )
-              )}`
+              )}`,
+
+            /*
+             * Allows the service worker to call the
+             * backend directly for notification actions.
+             */
+            apiUrl:
+              PUBLIC_API_URL
           });
 
           let successfulSends = 0;
@@ -611,6 +626,162 @@ router.post(
 
       res.status(500).json({
         message: error.message
+      });
+    }
+  }
+);
+
+/* ========================================================
+   NOTIFICATION ACTIONS
+   ======================================================== */
+
+router.post(
+  '/notifications/action',
+  async (req, res) => {
+    try {
+      const {
+        action,
+        followupId
+      } = req.body;
+
+      if (!followupId) {
+        return res.status(400).json({
+          message:
+            'Follow-up ID is required.'
+        });
+      }
+
+      if (
+        ![
+          'snooze',
+          'complete',
+          'dismiss'
+        ].includes(action)
+      ) {
+        return res.status(400).json({
+          message:
+            'Invalid notification action.'
+        });
+      }
+
+      /*
+       * DISMISS
+       *
+       * Close the browser notification only.
+       *
+       * The delivery record is intentionally kept so
+       * the same due reminder is not immediately sent
+       * again by the scheduler.
+       *
+       * The follow-up remains Pending.
+       */
+      if (
+        action === 'dismiss'
+      ) {
+        return res.json({
+          success: true,
+          action: 'dismiss'
+        });
+      }
+
+      /*
+       * Find follow-up for Snooze / Complete.
+       */
+      const followup =
+        await FollowUp.findById(
+          followupId
+        );
+
+      if (!followup) {
+        return res.status(404).json({
+          message:
+            'Follow-up not found.'
+        });
+      }
+
+      /*
+       * SNOOZE
+       *
+       * Move the follow-up 10 minutes into
+       * the future and remove the previous
+       * delivery record so the reminder can
+       * be sent again after the snooze period.
+       */
+      if (
+        action === 'snooze'
+      ) {
+        if (
+          followup.status !==
+          'Pending'
+        ) {
+          return res.json({
+            success: true,
+            action: 'snooze',
+            message:
+              'Follow-up is no longer pending.'
+          });
+        }
+
+        const snoozedUntil =
+          new Date(
+            Date.now() +
+              10 * 60 * 1000
+          );
+
+        followup.dueAt =
+          snoozedUntil;
+
+        await followup.save();
+
+        await NotificationDelivery.deleteMany({
+          followUp:
+            followup._id
+        });
+
+        return res.json({
+          success: true,
+          action: 'snooze',
+          dueAt:
+            snoozedUntil
+        });
+      }
+
+      /*
+       * COMPLETE
+       *
+       * Mark the follow-up as completed and
+       * remove its notification delivery record.
+       */
+      if (
+        action === 'complete'
+      ) {
+        followup.status =
+          'Completed';
+
+        followup.completedAt =
+          new Date();
+
+        await followup.save();
+
+        await NotificationDelivery.deleteMany({
+          followUp:
+            followup._id
+        });
+
+        return res.json({
+          success: true,
+          action: 'complete'
+        });
+      }
+    } catch (error) {
+      console.error(
+        'Notification action error:',
+        error
+      );
+
+      res.status(500).json({
+        message:
+          error.message
       });
     }
   }
