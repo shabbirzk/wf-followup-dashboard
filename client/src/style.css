@@ -1181,3 +1181,12 @@ td .muted {
   color: #6b7280;
   font-size: 14px;
 }
+
+/* =========================================================
+   CUSTOMER EDIT MODAL LABELS
+========================================================= */
+
+.edit-modal-label {
+  color: #222222 !important;
+  font-weight: 600;
+}
