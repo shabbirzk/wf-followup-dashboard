@@ -156,7 +156,7 @@ function App() {
     useState([]);
 
   const [loading, setLoading] =
-    useState(true);
+    useState(false);
 
   /* =====================================================
      DASHBOARD SALESPERSON FILTER
@@ -280,7 +280,6 @@ function App() {
 
   const loadData = async () => {
     try {
-      setLoading(true);
 
       const [
         customersResponse,
@@ -1230,20 +1229,6 @@ function App() {
     };
 
   /* =====================================================
-     LOADING
-  ===================================================== */
-
-  if (loading) {
-    return (
-      <div className="app">
-        <div className="loading">
-          Loading dashboard...
-        </div>
-      </div>
-    );
-  }
-
-  /* =====================================================
      RENDER
   ===================================================== */
 
@@ -1370,8 +1355,6 @@ function App() {
                 </p>
               </div>
 
-              {/* SALESPERSON FILTER */}
-
               <div className="dashboard-filter">
 
                 <label>
@@ -1419,8 +1402,6 @@ function App() {
               </div>
 
             </div>
-
-            {/* KPI CARDS */}
 
             <div className="stats-grid">
 
@@ -1494,8 +1475,6 @@ function App() {
               />
 
             </div>
-
-            {/* DASHBOARD SUMMARY */}
 
             <div className="dashboard-grid">
 
@@ -2326,6 +2305,7 @@ function App() {
                         </td>
 
                       </tr>
+
                     ) : (
                       filteredCustomers.map(
                         (customer) => (
@@ -2478,8 +2458,6 @@ function App() {
                   saveFollowUp
                 }
               >
-
-                {/* CUSTOMER SEARCH */}
 
                 <div
                   className="form-group"
