@@ -412,15 +412,17 @@ function App() {
           customer.status ===
           "Converted"
       );
-/* CONVERSION*/
-const conversionPercentage =
-  filteredDashboardCustomers.length === 0
-    ? 0
-    : (
-        (convertedCustomers.length /
-          filteredDashboardCustomers.length) *
-        100
-      ).toFixed(1);
+
+    /* CONVERSION */
+
+    const conversionPercentage =
+      filteredDashboardCustomers.length === 0
+        ? 0
+        : (
+            (convertedCustomers.length /
+              filteredDashboardCustomers.length) *
+            100
+          ).toFixed(1);
 
     /* QUOTATION */
 
@@ -617,7 +619,8 @@ const conversionPercentage =
             "Negotiation",
             "Converted",
             "Lost",
-            "Active"
+            "Active",
+            "Not Interested"
           ];
 
           const matchesStatus =
@@ -1684,8 +1687,6 @@ const conversionPercentage =
 
                 </div>
 
-                {/* PHONE */}
-
                 <div className="form-group">
 
                   <label>
@@ -1704,8 +1705,6 @@ const conversionPercentage =
                   />
 
                 </div>
-
-                {/* EDITABLE LOCATION COMBO */}
 
                 <div className="form-group">
 
@@ -2165,6 +2164,10 @@ const conversionPercentage =
 
                     <option value="Active">
                       Active
+                    </option>
+
+                    <option value="Not Interested">
+                      Not Interested
                     </option>
 
                   </select>
@@ -2926,6 +2929,10 @@ const conversionPercentage =
                     Active
                   </option>
 
+                  <option value="Not Interested">
+                    Not Interested
+                  </option>
+
                 </select>
 
                 <select
@@ -3355,6 +3362,56 @@ const conversionPercentage =
                   value={editingCustomer.name || ''}
                   disabled
                 />
+              </div>
+
+              {/* CUSTOMER STATUS */}
+
+              <div className="form-group">
+                <label>Customer Status</label>
+
+                <select
+                  name="status"
+                  value={editingCustomer.status || "New"}
+                  onChange={(e) =>
+                    setEditingCustomer((prev) => ({
+                      ...prev,
+                      status: e.target.value
+                    }))
+                  }
+                  disabled={savingCustomerEdit}
+                >
+                  <option value="New">
+                    New
+                  </option>
+
+                  <option value="Contacted">
+                    Contacted
+                  </option>
+
+                  <option value="Quoted">
+                    Quoted
+                  </option>
+
+                  <option value="Negotiation">
+                    Negotiation
+                  </option>
+
+                  <option value="Converted">
+                    Converted
+                  </option>
+
+                  <option value="Lost">
+                    Lost
+                  </option>
+
+                  <option value="Active">
+                    Active
+                  </option>
+
+                  <option value="Not Interested">
+                    Not Interested
+                  </option>
+                </select>
               </div>
 
               <div className="form-group">
