@@ -27,19 +27,7 @@ self.addEventListener('push', (event) => {
 
     badge: '/favicon.ico',
 
-    data: {
-      url:
-        data.url ||
-        `/?tab=followups&followupId=${encodeURIComponent(
-          data.followupId || ''
-        )}`,
-
-      followupId:
-        data.followupId || '',
-
-      customerId:
-        data.customerId || ''
-    },
+    requireInteraction: true,
 
     actions: [
       {
@@ -56,7 +44,23 @@ self.addEventListener('push', (event) => {
       }
     ],
 
-    requireInteraction: true
+    data: {
+      url:
+        data.url ||
+        `/?tab=followups&followupId=${encodeURIComponent(
+          data.followupId || ''
+        )}`,
+
+      apiUrl:
+        data.apiUrl ||
+        'https://wf-followup-api1.onrender.com/api',
+
+      followupId:
+        data.followupId || '',
+
+      customerId:
+        data.customerId || ''
+    }
   };
 
   event.waitUntil(
@@ -71,21 +75,33 @@ self.addEventListener('push', (event) => {
 self.addEventListener(
   'notificationclick',
   (event) => {
-
     const notification =
       event.notification;
 
     const action =
       event.action;
 
-    const notificationData =
+    const data =
       notification.data || {};
 
+    const followupId =
+      data.followupId;
+
+    const apiUrl =
+      data.apiUrl ||
+      'https://wf-followup-api1.onrender.com/api';
+
+    /*
+     * Always close the notification
+     * after the user takes an action.
+     */
     notification.close();
 
     /*
      * DISMISS
-     * Simply closes the notification.
+     *
+     * Only closes the notification.
+     * Follow-up remains Pending.
      */
     if (action === 'dismiss') {
       return;
@@ -93,31 +109,35 @@ self.addEventListener(
 
     /*
      * SNOOZE
-     * This currently sends the action to any
-     * open CRM window.
-     *
-     * Backend connection will be added next
-     * so the reminder is actually postponed.
      */
-    if (action === 'snooze') {
+    if (
+      action === 'snooze'
+    ) {
       event.waitUntil(
-        clients
-          .matchAll({
-            type: 'window',
-            includeUncontrolled: true
-          })
-          .then((clientList) => {
+        fetch(
+          `${apiUrl}/notifications/action`,
+          {
+            method: 'POST',
 
-            clientList.forEach((client) => {
-              client.postMessage({
-                type: 'FOLLOWUP_SNOOZE',
-                followupId:
-                  notificationData.followupId,
-                minutes: 10
-              });
-            });
+            headers: {
+              'Content-Type':
+                'application/json'
+            },
 
-          })
+            body: JSON.stringify({
+              action:
+                'snooze',
+
+              followupId:
+                followupId
+            })
+          }
+        ).catch((error) => {
+          console.error(
+            'Snooze notification action failed:',
+            error
+          );
+        })
       );
 
       return;
@@ -125,41 +145,46 @@ self.addEventListener(
 
     /*
      * COMPLETE
-     * This currently sends the action to any
-     * open CRM window.
-     *
-     * Backend connection will be added next
-     * so the follow-up is actually completed.
      */
-    if (action === 'complete') {
+    if (
+      action === 'complete'
+    ) {
       event.waitUntil(
-        clients
-          .matchAll({
-            type: 'window',
-            includeUncontrolled: true
-          })
-          .then((clientList) => {
+        fetch(
+          `${apiUrl}/notifications/action`,
+          {
+            method: 'POST',
 
-            clientList.forEach((client) => {
-              client.postMessage({
-                type: 'FOLLOWUP_COMPLETE',
-                followupId:
-                  notificationData.followupId
-              });
-            });
+            headers: {
+              'Content-Type':
+                'application/json'
+            },
 
-          })
+            body: JSON.stringify({
+              action:
+                'complete',
+
+              followupId:
+                followupId
+            })
+          }
+        ).catch((error) => {
+          console.error(
+            'Complete notification action failed:',
+            error
+          );
+        })
       );
 
       return;
     }
 
     /*
-     * Clicking the notification itself
+     * Normal notification click
      * opens the relevant follow-up.
      */
     const targetUrl =
-      notificationData.url ||
+      data.url ||
       '/?tab=followups';
 
     event.waitUntil(
@@ -169,12 +194,12 @@ self.addEventListener(
           includeUncontrolled: true
         })
         .then((clientList) => {
-
           for (
             const client of clientList
           ) {
-            if ('focus' in client) {
-
+            if (
+              'navigate' in client
+            ) {
               client.navigate(
                 targetUrl
               );
@@ -183,7 +208,9 @@ self.addEventListener(
             }
           }
 
-          if (clients.openWindow) {
+          if (
+            clients.openWindow
+          ) {
             return clients.openWindow(
               targetUrl
             );
