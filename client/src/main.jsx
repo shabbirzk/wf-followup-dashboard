@@ -479,6 +479,88 @@ function App() {
     }
   };
 
+  /* =====================================================
+     RESTORE NOTIFICATION STATE AFTER PAGE / BROWSER REOPEN
+  ===================================================== */
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreNotificationState = async () => {
+      const savedSalesperson =
+        localStorage.getItem(
+          "wfNotificationSalesperson"
+        ) || "";
+
+      if (!savedSalesperson) {
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+        return;
+      }
+
+      if (!("Notification" in window)) {
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+        return;
+      }
+
+      if (Notification.permission !== "granted") {
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+        return;
+      }
+
+      if (!("serviceWorker" in navigator)) {
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+        return;
+      }
+
+      try {
+        const registration =
+          await navigator.serviceWorker.register(
+            "/sw.js"
+          );
+
+        await navigator.serviceWorker.ready;
+
+        const subscription =
+          await registration.pushManager.getSubscription();
+
+        if (!cancelled && subscription) {
+          setNotificationSalesperson(
+            savedSalesperson
+          );
+          setNotificationsEnabled(true);
+          setNotificationMessage(
+            `Reminders enabled for ${savedSalesperson}.`
+          );
+        } else if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+      } catch (error) {
+        console.error(
+          "Restore notification state error:",
+          error
+        );
+
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+      }
+    };
+
+    restoreNotificationState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(
       window.location.search
