@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import axios from "axios";
 import "./style.css";
@@ -258,23 +258,95 @@ function App() {
      SALESPERSON-WISE REMINDERS
   ===================================================== */
 
+  /*
+   * Multiple salespersons can use the same browser.
+   * Keep the enabled salesperson list separately from the
+   * currently selected salesperson shown in the existing UI.
+   *
+   * The older single-salesperson key is migrated automatically.
+   */
+  const [notificationSalespersons, setNotificationSalespersons] =
+    useState(() => {
+      try {
+        const saved =
+          JSON.parse(
+            localStorage.getItem(
+              "wfNotificationSalespersons"
+            ) || "[]"
+          );
+
+        if (Array.isArray(saved)) {
+          return saved.filter(Boolean);
+        }
+      } catch (error) {
+        console.error(
+          "Notification salesperson restore error:",
+          error
+        );
+      }
+
+      const legacy =
+        localStorage.getItem(
+          "wfNotificationSalesperson"
+        ) || "";
+
+      return legacy ? [legacy] : [];
+    });
+
   const [notificationSalesperson, setNotificationSalesperson] =
-    useState(() =>
-      localStorage.getItem(
-        "wfNotificationSalesperson"
-      ) || ""
-    );
+    useState(() => {
+      const current =
+        localStorage.getItem(
+          "wfNotificationSalesperson"
+        ) || "";
+
+      if (current) {
+        return current;
+      }
+
+      try {
+        const saved =
+          JSON.parse(
+            localStorage.getItem(
+              "wfNotificationSalespersons"
+            ) || "[]"
+          );
+
+        return Array.isArray(saved)
+          ? saved[0] || ""
+          : "";
+      } catch {
+        return "";
+      }
+    });
 
   const [notificationsEnabled, setNotificationsEnabled] =
     useState(() => {
-      const saved = localStorage.getItem(
-        "wfNotificationSalesperson"
-      );
-      return Boolean(
-        saved &&
-        "Notification" in window &&
-        Notification.permission === "granted"
-      );
+      const current =
+        localStorage.getItem(
+          "wfNotificationSalesperson"
+        ) || "";
+
+      try {
+        const saved =
+          JSON.parse(
+            localStorage.getItem(
+              "wfNotificationSalespersons"
+            ) || "[]"
+          );
+
+        if (Array.isArray(saved)) {
+          return saved.some(
+            (name) =>
+              normalizeName(name) ===
+              normalizeName(current)
+          );
+        }
+      } catch {
+        // Fall back to the legacy single-salesperson key.
+      }
+
+      return Boolean(current);
     });
 
   const [notificationMessage, setNotificationMessage] =
@@ -285,6 +357,9 @@ function App() {
 
   const [highlightedFollowUpId, setHighlightedFollowUpId] =
     useState("");
+
+  const checkedReminderIds =
+    useRef(new Set());
 
   /* =====================================================
      FILTERS
@@ -427,22 +502,49 @@ function App() {
           });
       }
 
-      await axios.post(
-        `${API}/notifications/subscribe`,
-        {
-          salesperson: notificationSalesperson,
-          subscription: subscription.toJSON()
-        }
-      );
+      const response =
+        await axios.post(
+          `${API}/notifications/subscribe`,
+          {
+            salesperson: notificationSalesperson,
+            subscription: subscription.toJSON()
+          }
+        );
+
+      const officialSalesperson =
+        response.data?.salesperson ||
+        notificationSalesperson;
+
+      setNotificationSalespersons((previous) => {
+        const exists = previous.some(
+          (name) =>
+            normalizeName(name) ===
+            normalizeName(officialSalesperson)
+        );
+
+        const updated = exists
+          ? previous
+          : [...previous, officialSalesperson];
+
+        localStorage.setItem(
+          "wfNotificationSalespersons",
+          JSON.stringify(updated)
+        );
+
+        return updated;
+      });
 
       localStorage.setItem(
         "wfNotificationSalesperson",
-        notificationSalesperson
+        officialSalesperson
       );
 
+      setNotificationSalesperson(
+        officialSalesperson
+      );
       setNotificationsEnabled(true);
       setNotificationMessage(
-        `Reminders enabled for ${notificationSalesperson}.`
+        `Reminders enabled for ${officialSalesperson}.`
       );
     } catch (error) {
       console.error(
@@ -470,20 +572,34 @@ function App() {
           `${API}/notifications/subscribe`,
           {
             data: {
-              endpoint: subscription.endpoint
+              endpoint: subscription.endpoint,
+              salesperson: notificationSalesperson
             }
           }
         );
-
-        await subscription.unsubscribe();
       }
 
-      setNotificationsEnabled(false);
-      setNotificationMessage("");
+      setNotificationSalespersons((previous) => {
+        const updated = previous.filter(
+          (name) =>
+            normalizeName(name) !==
+            normalizeName(notificationSalesperson)
+        );
+
+        localStorage.setItem(
+          "wfNotificationSalespersons",
+          JSON.stringify(updated)
+        );
+
+        return updated;
+      });
+
       localStorage.removeItem(
         "wfNotificationSalesperson"
       );
-      setReminderFollowUps([]);
+
+      setNotificationsEnabled(false);
+      setNotificationMessage("");
     } catch (error) {
       console.error(
         "Notification disable error:",
@@ -497,24 +613,138 @@ function App() {
   ===================================================== */
 
   useEffect(() => {
-    const savedSalesperson =
-      localStorage.getItem(
-        "wfNotificationSalesperson"
-      ) || "";
+    let cancelled = false;
 
-    if (
-      savedSalesperson &&
-      "Notification" in window &&
-      Notification.permission === "granted"
-    ) {
-      setNotificationSalesperson(savedSalesperson);
-      setNotificationsEnabled(true);
-      setNotificationMessage(
-        `Reminders enabled for ${savedSalesperson}.`
-      );
-    } else {
-      setNotificationsEnabled(false);
-    }
+    const restoreNotificationState = async () => {
+      let savedSalespersons = [];
+
+      try {
+        const parsed =
+          JSON.parse(
+            localStorage.getItem(
+              "wfNotificationSalespersons"
+            ) || "[]"
+          );
+
+        if (Array.isArray(parsed)) {
+          savedSalespersons = parsed.filter(Boolean);
+        }
+      } catch (error) {
+        console.error(
+          "Notification salesperson list restore error:",
+          error
+        );
+      }
+
+      const legacySalesperson =
+        localStorage.getItem(
+          "wfNotificationSalesperson"
+        ) || "";
+
+      if (
+        !savedSalespersons.length &&
+        legacySalesperson
+      ) {
+        savedSalespersons = [
+          legacySalesperson
+        ];
+
+        localStorage.setItem(
+          "wfNotificationSalespersons",
+          JSON.stringify(savedSalespersons)
+        );
+      }
+
+      if (!savedSalespersons.length) {
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+        return;
+      }
+
+      if (!("Notification" in window)) {
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+        return;
+      }
+
+      if (Notification.permission !== "granted") {
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+        return;
+      }
+
+      if (!("serviceWorker" in navigator)) {
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+        return;
+      }
+
+      try {
+        const registration =
+          await navigator.serviceWorker.register(
+            "/sw.js"
+          );
+
+        await navigator.serviceWorker.ready;
+
+        const subscription =
+          await registration.pushManager.getSubscription();
+
+        if (!cancelled && subscription) {
+          const savedCurrent =
+            localStorage.getItem(
+              "wfNotificationSalesperson"
+            ) ||
+            savedSalespersons[0] ||
+            "";
+
+          const current =
+            savedSalespersons.find(
+              (name) =>
+                normalizeName(name) ===
+                normalizeName(savedCurrent)
+            ) || savedSalespersons[0] || "";
+
+          setNotificationSalespersons(
+            savedSalespersons
+          );
+          setNotificationSalesperson(
+            current
+          );
+          setNotificationsEnabled(
+            savedSalespersons.some(
+              (name) =>
+                normalizeName(name) ===
+                normalizeName(current)
+            )
+          );
+          setNotificationMessage(
+            `Reminders enabled for ${current}.`
+          );
+        } else if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+      } catch (error) {
+        console.error(
+          "Restore notification state error:",
+          error
+        );
+
+        if (!cancelled) {
+          setNotificationsEnabled(false);
+        }
+      }
+    };
+
+    restoreNotificationState();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -557,11 +787,12 @@ function App() {
 
     const checkReminders = () => {
       const now = Date.now();
-      const selectedSalesperson = normalizeName(
-        notificationSalesperson
-      );
+      const enabledSalespersonKeys =
+        notificationSalespersons.map(
+          (name) => normalizeName(name)
+        );
 
-      if (!selectedSalesperson) {
+      if (!enabledSalespersonKeys.length) {
         return;
       }
 
@@ -602,8 +833,11 @@ function App() {
           }
 
           if (
-            normalizeName(followUp.salesperson) !==
-            selectedSalesperson
+            !enabledSalespersonKeys.includes(
+              normalizeName(
+                followUp.salesperson
+              )
+            )
           ) {
             return false;
           }
@@ -611,7 +845,7 @@ function App() {
           const key =
             `wf-followup-reminder-${followUp._id}-${followUp.dueAt}`;
 
-          if (localStorage.getItem(key)) {
+          if (sessionStorage.getItem(key)) {
             return false;
           }
 
@@ -630,7 +864,7 @@ function App() {
         const key =
           `wf-followup-reminder-${followUp._id}-${followUp.dueAt}`;
 
-        localStorage.setItem(key, "1");
+        sessionStorage.setItem(key, "1");
         checkedReminderIds.current.add(key);
       });
 
@@ -663,7 +897,7 @@ function App() {
   }, [
     followUps,
     customers,
-    notificationSalesperson
+    notificationSalespersons
   ]);
 
   useEffect(() => {
@@ -1751,14 +1985,24 @@ const conversionPercentage =
           <select
             value={notificationSalesperson}
             onChange={(e) => {
-              setNotificationSalesperson(
-                e.target.value
+              const selected = e.target.value;
+
+              setNotificationSalesperson(selected);
+              setNotificationsEnabled(
+                notificationSalespersons.some(
+                  (name) =>
+                    normalizeName(name) ===
+                    normalizeName(selected)
+                )
               );
-              setNotificationsEnabled(false);
               setNotificationMessage("");
-              localStorage.removeItem(
-                "wfNotificationSalesperson"
-              );
+
+              if (selected) {
+                localStorage.setItem(
+                  "wfNotificationSalesperson",
+                  selected
+                );
+              }
             }}
             style={{
               padding: "9px 12px",
