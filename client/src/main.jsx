@@ -266,7 +266,16 @@ function App() {
     );
 
   const [notificationsEnabled, setNotificationsEnabled] =
-    useState(false);
+    useState(() => {
+      const saved = localStorage.getItem(
+        "wfNotificationSalesperson"
+      );
+      return Boolean(
+        saved &&
+        "Notification" in window &&
+        Notification.permission === "granted"
+      );
+    });
 
   const [notificationMessage, setNotificationMessage] =
     useState("");
@@ -471,6 +480,10 @@ function App() {
 
       setNotificationsEnabled(false);
       setNotificationMessage("");
+      localStorage.removeItem(
+        "wfNotificationSalesperson"
+      );
+      setReminderFollowUps([]);
     } catch (error) {
       console.error(
         "Notification disable error:",
@@ -484,81 +497,24 @@ function App() {
   ===================================================== */
 
   useEffect(() => {
-    let cancelled = false;
+    const savedSalesperson =
+      localStorage.getItem(
+        "wfNotificationSalesperson"
+      ) || "";
 
-    const restoreNotificationState = async () => {
-      const savedSalesperson =
-        localStorage.getItem(
-          "wfNotificationSalesperson"
-        ) || "";
-
-      if (!savedSalesperson) {
-        if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-        return;
-      }
-
-      if (!("Notification" in window)) {
-        if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-        return;
-      }
-
-      if (Notification.permission !== "granted") {
-        if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-        return;
-      }
-
-      if (!("serviceWorker" in navigator)) {
-        if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-        return;
-      }
-
-      try {
-        const registration =
-          await navigator.serviceWorker.register(
-            "/sw.js"
-          );
-
-        await navigator.serviceWorker.ready;
-
-        const subscription =
-          await registration.pushManager.getSubscription();
-
-        if (!cancelled && subscription) {
-          setNotificationSalesperson(
-            savedSalesperson
-          );
-          setNotificationsEnabled(true);
-          setNotificationMessage(
-            `Reminders enabled for ${savedSalesperson}.`
-          );
-        } else if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-      } catch (error) {
-        console.error(
-          "Restore notification state error:",
-          error
-        );
-
-        if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-      }
-    };
-
-    restoreNotificationState();
-
-    return () => {
-      cancelled = true;
-    };
+    if (
+      savedSalesperson &&
+      "Notification" in window &&
+      Notification.permission === "granted"
+    ) {
+      setNotificationSalesperson(savedSalesperson);
+      setNotificationsEnabled(true);
+      setNotificationMessage(
+        `Reminders enabled for ${savedSalesperson}.`
+      );
+    } else {
+      setNotificationsEnabled(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -1800,6 +1756,9 @@ const conversionPercentage =
               );
               setNotificationsEnabled(false);
               setNotificationMessage("");
+              localStorage.removeItem(
+                "wfNotificationSalesperson"
+              );
             }}
             style={{
               padding: "9px 12px",
