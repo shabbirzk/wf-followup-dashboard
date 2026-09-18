@@ -349,6 +349,10 @@ const checkDueFollowUpReminders =
     try {
       const now = new Date();
 
+      console.log(
+        `[Reminder Check] Starting reminder check at ${now.toISOString()}`
+      );
+
       /*
        * Find all pending follow-ups that are due.
        *
@@ -363,6 +367,10 @@ const checkDueFollowUpReminders =
             $lte: now
           }
         }).populate('customer');
+
+      console.log(
+        `[Reminder Check] Pending overdue follow-ups found: ${followups.length}`
+      );
 
       if (!followups.length) {
         return;
@@ -380,6 +388,9 @@ const checkDueFollowUpReminders =
               followup.salesperson
             )
           ) {
+            console.log(
+              `[Reminder Check] Skipped follow-up ${followup._id}: salesperson is missing.`
+            );
             continue;
           }
 
@@ -387,6 +398,9 @@ const checkDueFollowUpReminders =
            * Ignore deleted/missing customers.
            */
           if (!followup.customer) {
+            console.log(
+              `[Reminder Check] Skipped follow-up ${followup._id}: customer is missing.`
+            );
             continue;
           }
 
@@ -408,6 +422,9 @@ const checkDueFollowUpReminders =
             customerStatus ===
               'completed'
           ) {
+            console.log(
+              `[Reminder Check] Skipped follow-up ${followup._id}: customer status is ${customerStatus}.`
+            );
             continue;
           }
 
@@ -426,9 +443,16 @@ const checkDueFollowUpReminders =
                 spKey
             });
 
+          console.log(
+            `[Reminder Check] Follow-up ${followup._id} | Salesperson: "${followup.salesperson}" | Key: "${spKey}" | Browser subscriptions: ${subscriptions.length}`
+          );
+
           if (
             !subscriptions.length
           ) {
+            console.log(
+              `[Reminder Check] No browser subscription found for salesperson "${followup.salesperson}".`
+            );
             continue;
           }
 
@@ -458,6 +482,9 @@ const checkDueFollowUpReminders =
               deliveryError?.code ===
               11000
             ) {
+              console.log(
+                `[Reminder Check] Follow-up ${followup._id} already has a delivery record for salesperson "${followup.salesperson}".`
+              );
               continue;
             }
 
@@ -535,6 +562,10 @@ const checkDueFollowUpReminders =
               PUBLIC_API_URL
           });
 
+          console.log(
+            `[Reminder Check] Attempting push notification for follow-up ${followup._id} to ${subscriptions.length} subscription(s).`
+          );
+
           let successfulSends = 0;
 
           for (
@@ -547,6 +578,10 @@ const checkDueFollowUpReminders =
               );
 
               successfulSends++;
+
+              console.log(
+                `[Reminder Check] Push notification sent successfully for follow-up ${followup._id} to subscription ${record._id}.`
+              );
             } catch (pushError) {
               console.error(
                 'Push notification error:',
@@ -572,6 +607,10 @@ const checkDueFollowUpReminders =
               }
             }
           }
+
+          console.log(
+            `[Reminder Check] Follow-up ${followup._id} completed with ${successfulSends} successful push send(s).`
+          );
 
           /*
            * If every subscription failed, remove the
