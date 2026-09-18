@@ -5,7 +5,7 @@ import "./style.css";
 
 const API =
   import.meta.env.VITE_API_URL ||
-  "https://wf-followup-dashboard1.onrender.com/api";
+  "https://wf-followup-api1.onrender.com/api";
 
 /* =========================================================
    DUBAI TIMEZONE HELPERS
