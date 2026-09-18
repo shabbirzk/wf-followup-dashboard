@@ -62,8 +62,7 @@ const NotificationSubscriptionSchema =
 
       endpoint: {
         type: String,
-        required: true,
-        unique: true
+        required: true
       },
 
       subscription: {
@@ -76,12 +75,53 @@ const NotificationSubscriptionSchema =
     }
   );
 
+NotificationSubscriptionSchema.index(
+  { endpoint: 1, salespersonKey: 1 },
+  { unique: true }
+);
+
 const NotificationSubscription =
   mongoose.models.NotificationSubscription ||
   mongoose.model(
     'NotificationSubscription',
     NotificationSubscriptionSchema
   );
+
+/*
+ * Older versions used a unique index on endpoint alone.
+ * Remove that legacy index so one browser endpoint can be
+ * associated with multiple salespersons.
+ */
+const removeLegacyNotificationEndpointIndex =
+  async () => {
+    try {
+      const indexes =
+        await NotificationSubscription.collection.indexes();
+
+      const legacyIndex = indexes.find(
+        (index) =>
+          index.name === 'endpoint_1' &&
+          index.unique === true
+      );
+
+      if (legacyIndex) {
+        await NotificationSubscription.collection.dropIndex(
+          'endpoint_1'
+        );
+
+        console.log(
+          '[Notifications] Removed legacy unique endpoint index.'
+        );
+      }
+    } catch (error) {
+      console.error(
+        '[Notifications] Unable to remove legacy endpoint index:',
+        error
+      );
+    }
+  };
+
+removeLegacyNotificationEndpointIndex();
 
 /* ========================================================
    NOTIFICATION DELIVERY MODEL
@@ -242,17 +282,25 @@ router.post(
         );
 
       /*
-       * A browser/device endpoint belongs to the
-       * salesperson selected on that browser.
+       * One browser endpoint can belong to multiple
+       * salespersons.
        *
-       * This allows one salesperson to have multiple
-       * browsers/devices receiving reminders.
+       * Example:
+       *
+       * endpoint + mushtaq
+       * endpoint + ahmed
+       * endpoint + john
+       *
+       * Adding Ahmed will NOT replace Mushtaq.
        */
       const saved =
         await NotificationSubscription.findOneAndUpdate(
           {
             endpoint:
-              subscription.endpoint
+              subscription.endpoint,
+
+            salespersonKey:
+              key
           },
           {
             salesperson:
@@ -275,8 +323,10 @@ router.post(
 
       res.json({
         success: true,
+
         salesperson:
           officialSalesperson,
+
         subscriptionId:
           saved._id
       });
@@ -294,7 +344,7 @@ router.post(
 );
 
 /*
- * Optional unsubscribe endpoint.
+ * Disable notification for ONE salesperson only.
  */
 router.delete(
   '/notifications/subscribe',
@@ -305,6 +355,11 @@ router.delete(
           req.body?.endpoint
         );
 
+      const cleanedSalesperson =
+        cleanName(
+          req.body?.salesperson
+        );
+
       if (!endpoint) {
         return res.status(400).json({
           message:
@@ -312,12 +367,43 @@ router.delete(
         });
       }
 
+      if (!cleanedSalesperson) {
+        return res.status(400).json({
+          message:
+            'Salesperson is required to disable reminders.'
+        });
+      }
+
+      const key =
+        salespersonKey(
+          cleanedSalesperson
+        );
+
+      /*
+       * Delete ONLY this salesperson.
+       *
+       * If the browser has:
+       *
+       * Mushtaq
+       * Ahmed
+       * John
+       *
+       * and Mushtaq disables notifications,
+       * Ahmed and John remain enabled.
+       */
       await NotificationSubscription.deleteOne({
-        endpoint
+        endpoint,
+        salespersonKey: key
       });
 
+      const remaining =
+        await NotificationSubscription.countDocuments({
+          endpoint
+        });
+
       res.json({
-        success: true
+        success: true,
+        remaining
       });
     } catch (error) {
       console.error(error);
@@ -349,10 +435,6 @@ const checkDueFollowUpReminders =
     try {
       const now = new Date();
 
-      console.log(
-        `[Reminder Check] Starting reminder check at ${now.toISOString()}`
-      );
-
       /*
        * Find all pending follow-ups that are due.
        *
@@ -367,10 +449,6 @@ const checkDueFollowUpReminders =
             $lte: now
           }
         }).populate('customer');
-
-      console.log(
-        `[Reminder Check] Pending overdue follow-ups found: ${followups.length}`
-      );
 
       if (!followups.length) {
         return;
@@ -388,9 +466,6 @@ const checkDueFollowUpReminders =
               followup.salesperson
             )
           ) {
-            console.log(
-              `[Reminder Check] Skipped follow-up ${followup._id}: salesperson is missing.`
-            );
             continue;
           }
 
@@ -398,15 +473,12 @@ const checkDueFollowUpReminders =
            * Ignore deleted/missing customers.
            */
           if (!followup.customer) {
-            console.log(
-              `[Reminder Check] Skipped follow-up ${followup._id}: customer is missing.`
-            );
             continue;
           }
 
           /*
            * Do not remind for customers that are
-           * already converted.
+           * already converted or completed.
            */
           const customerStatus =
             String(
@@ -422,9 +494,6 @@ const checkDueFollowUpReminders =
             customerStatus ===
               'completed'
           ) {
-            console.log(
-              `[Reminder Check] Skipped follow-up ${followup._id}: customer status is ${customerStatus}.`
-            );
             continue;
           }
 
@@ -443,16 +512,9 @@ const checkDueFollowUpReminders =
                 spKey
             });
 
-          console.log(
-            `[Reminder Check] Follow-up ${followup._id} | Salesperson: "${followup.salesperson}" | Key: "${spKey}" | Browser subscriptions: ${subscriptions.length}`
-          );
-
           if (
             !subscriptions.length
           ) {
-            console.log(
-              `[Reminder Check] No browser subscription found for salesperson "${followup.salesperson}".`
-            );
             continue;
           }
 
@@ -482,9 +544,6 @@ const checkDueFollowUpReminders =
               deliveryError?.code ===
               11000
             ) {
-              console.log(
-                `[Reminder Check] Follow-up ${followup._id} already has a delivery record for salesperson "${followup.salesperson}".`
-              );
               continue;
             }
 
@@ -527,44 +586,41 @@ const checkDueFollowUpReminders =
               }
             );
 
-          const payload = JSON.stringify({
-            title:
-              'Follow-up Reminder',
+          const payload =
+            JSON.stringify({
+              title:
+                'Follow-up Reminder',
 
-            body:
-              `${customerName} - ${followupType} follow-up is due${priority ? ` (${priority})` : ''}. Due: ${dueTime}`,
+              body:
+                `${customerName} - ${followupType} follow-up is due${priority ? ` (${priority})` : ''}. Due: ${dueTime}`,
 
-            salesperson:
-              followup.salesperson,
+              salesperson:
+                followup.salesperson,
 
-            followupId:
-              String(
-                followup._id
-              ),
-
-            customerId:
-              String(
-                followup.customer._id
-              ),
-
-            url:
-              `/?tab=followups&followupId=${encodeURIComponent(
+              followupId:
                 String(
                   followup._id
-                )
-              )}`,
+                ),
 
-            /*
-             * Allows the service worker to call the
-             * backend directly for notification actions.
-             */
-            apiUrl:
-              PUBLIC_API_URL
-          });
+              customerId:
+                String(
+                  followup.customer._id
+                ),
 
-          console.log(
-            `[Reminder Check] Attempting push notification for follow-up ${followup._id} to ${subscriptions.length} subscription(s).`
-          );
+              url:
+                `/?tab=followups&followupId=${encodeURIComponent(
+                  String(
+                    followup._id
+                  )
+                )}`,
+
+              /*
+               * Allows the service worker to call the
+               * backend directly for notification actions.
+               */
+              apiUrl:
+                PUBLIC_API_URL
+            });
 
           let successfulSends = 0;
 
@@ -578,10 +634,6 @@ const checkDueFollowUpReminders =
               );
 
               successfulSends++;
-
-              console.log(
-                `[Reminder Check] Push notification sent successfully for follow-up ${followup._id} to subscription ${record._id}.`
-              );
             } catch (pushError) {
               console.error(
                 'Push notification error:',
@@ -607,10 +659,6 @@ const checkDueFollowUpReminders =
               }
             }
           }
-
-          console.log(
-            `[Reminder Check] Follow-up ${followup._id} completed with ${successfulSends} successful push send(s).`
-          );
 
           /*
            * If every subscription failed, remove the
@@ -830,101 +878,118 @@ router.post(
    SALESPERSON MASTER
    ======================================================== */
 
-router.get('/salespersons', async (req, res) => {
-  try {
-    const salespersons =
-      await Salesperson.find().sort({
-        name: 1
-      });
-
-    res.json(salespersons);
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      message: error.message
-    });
-  }
-});
-
-router.post('/salespersons', async (req, res) => {
-  try {
-    const name = cleanName(req.body.name);
-
-    if (!name) {
-      return res.status(400).json({
-        message: 'Salesperson name is required.'
-      });
-    }
-
-    /*
-     * Prevent duplicate salesperson names.
-     */
-    const existing =
-      await Salesperson.findOne({
-        name: {
-          $regex: `^${name.replace(
-            /[.*+?^${}()|[\]\\]/g,
-            '\\$&'
-          )}$`,
-          $options: 'i'
-        }
-      });
-
-    if (existing) {
-      return res.status(400).json({
-        message:
-          'A salesperson with this name already exists.'
-      });
-    }
-
-    /*
-     * Generate next available salesperson code.
-     * This is safer than countDocuments because deleted
-     * records could otherwise create duplicate codes.
-     */
-    const last =
-      await Salesperson.findOne()
-        .sort({
-          salespersonCode: -1
+router.get(
+  '/salespersons',
+  async (req, res) => {
+    try {
+      const salespersons =
+        await Salesperson.find().sort({
+          name: 1
         });
 
-    let nextNumber = 1;
+      res.json(salespersons);
+    } catch (error) {
+      console.error(error);
 
-    if (last?.salespersonCode) {
-      const match =
-        last.salespersonCode.match(
-          /SP-(\d+)/
+      res.status(500).json({
+        message: error.message
+      });
+    }
+  }
+);
+
+router.post(
+  '/salespersons',
+  async (req, res) => {
+    try {
+      const name =
+        cleanName(
+          req.body.name
         );
 
-      if (match) {
-        nextNumber =
-          Number(match[1]) + 1;
+      if (!name) {
+        return res.status(400).json({
+          message:
+            'Salesperson name is required.'
+        });
       }
-    }
 
-    const salespersonCode =
-      `SP-${String(nextNumber).padStart(
-        4,
-        '0'
-      )}`;
+      /*
+       * Prevent duplicate salesperson names.
+       */
+      const existing =
+        await Salesperson.findOne({
+          name: {
+            $regex:
+              `^${name.replace(
+                /[.*+?^${}()|[\]\\]/g,
+                '\\$&'
+              )}$`,
+            $options: 'i'
+          }
+        });
 
-    const salesperson =
-      await Salesperson.create({
-        ...req.body,
-        name,
-        salespersonCode
+      if (existing) {
+        return res.status(400).json({
+          message:
+            'A salesperson with this name already exists.'
+        });
+      }
+
+      /*
+       * Generate next available salesperson code.
+       * This is safer than countDocuments because deleted
+       * records could otherwise create duplicate codes.
+       */
+      const last =
+        await Salesperson.findOne()
+          .sort({
+            salespersonCode: -1
+          });
+
+      let nextNumber = 1;
+
+      if (
+        last?.salespersonCode
+      ) {
+        const match =
+          last.salespersonCode.match(
+            /SP-(\d+)/
+          );
+
+        if (match) {
+          nextNumber =
+            Number(match[1]) + 1;
+        }
+      }
+
+      const salespersonCode =
+        `SP-${String(
+          nextNumber
+        ).padStart(
+          4,
+          '0'
+        )}`;
+
+      const salesperson =
+        await Salesperson.create({
+          ...req.body,
+          name,
+          salespersonCode
+        });
+
+      res.status(201).json(
+        salesperson
+      );
+    } catch (error) {
+      console.error(error);
+
+      res.status(400).json({
+        message: error.message
       });
-
-    res.status(201).json(salesperson);
-  } catch (error) {
-    console.error(error);
-
-    res.status(400).json({
-      message: error.message
-    });
+    }
   }
-});
+);
 
 router.patch(
   '/salespersons/:id',
@@ -935,7 +1000,10 @@ router.patch(
       };
 
       if (data.name) {
-        data.name = cleanName(data.name);
+        data.name =
+          cleanName(
+            data.name
+          );
       }
 
       const salesperson =
@@ -955,7 +1023,9 @@ router.patch(
         });
       }
 
-      res.json(salesperson);
+      res.json(
+        salesperson
+      );
     } catch (error) {
       console.error(error);
 
@@ -970,76 +1040,90 @@ router.patch(
    CUSTOMER MASTER
    ======================================================== */
 
-router.get('/customers', async (req, res) => {
-  try {
-    const customers =
-      await Customer.find().sort({
-        createdAt: -1
+router.get(
+  '/customers',
+  async (req, res) => {
+    try {
+      const customers =
+        await Customer.find().sort({
+          createdAt: -1
+        });
+
+      res.json(customers);
+    } catch (error) {
+      console.error(error);
+
+      res.status(500).json({
+        message: error.message
       });
-
-    res.json(customers);
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      message: error.message
-    });
+    }
   }
-});
+);
 
-router.post('/customers', async (req, res) => {
-  try {
-    const data = {
-      ...req.body
-    };
+router.post(
+  '/customers',
+  async (req, res) => {
+    try {
+      const data = {
+        ...req.body
+      };
 
-    if (data.assignedSalesperson) {
-      const salesperson =
-        await findSalesperson(
-          data.assignedSalesperson
-        );
-
-      if (salesperson) {
-        /*
-         * Always store the official master name.
-         */
-        data.assignedSalesperson =
-          salesperson.name;
-      } else {
-        data.assignedSalesperson =
-          cleanName(
+      if (
+        data.assignedSalesperson
+      ) {
+        const salesperson =
+          await findSalesperson(
             data.assignedSalesperson
           );
+
+        if (salesperson) {
+          /*
+           * Always store the official master name.
+           */
+          data.assignedSalesperson =
+            salesperson.name;
+        } else {
+          data.assignedSalesperson =
+            cleanName(
+              data.assignedSalesperson
+            );
+        }
       }
-    }
 
-    const count =
-      await Customer.countDocuments();
+      const count =
+        await Customer.countDocuments();
 
-    const customerCode =
-      `CUST-${String(
-        count + 1
-      ).padStart(4, '0')}`;
+      const customerCode =
+        `CUST-${String(
+          count + 1
+        ).padStart(
+          4,
+          '0'
+        )}`;
 
-    const customer =
-      await Customer.create({
-        ...data,
-        customerCode,
-        quotationAmount:
-          Number(
-            data.quotationAmount || 0
-          )
+      const customer =
+        await Customer.create({
+          ...data,
+          customerCode,
+          quotationAmount:
+            Number(
+              data.quotationAmount ||
+                0
+            )
+        });
+
+      res.status(201).json(
+        customer
+      );
+    } catch (error) {
+      console.error(error);
+
+      res.status(400).json({
+        message: error.message
       });
-
-    res.status(201).json(customer);
-  } catch (error) {
-    console.error(error);
-
-    res.status(400).json({
-      message: error.message
-    });
+    }
   }
-});
+);
 
 router.patch(
   '/customers/:id',
@@ -1049,7 +1133,9 @@ router.patch(
         ...req.body
       };
 
-      if (data.assignedSalesperson) {
+      if (
+        data.assignedSalesperson
+      ) {
         const salesperson =
           await findSalesperson(
             data.assignedSalesperson
@@ -1091,7 +1177,8 @@ router.patch(
 
         const newQuotationAmount =
           Number(
-            data.quotationAmount || 0
+            data.quotationAmount ||
+              0
           );
 
         if (
@@ -1101,13 +1188,15 @@ router.patch(
             null
         ) {
           data.originalQuotationAmount =
-            existingCustomer.quotationAmount || 0;
+            existingCustomer.quotationAmount ||
+            0;
         }
 
         if (
           newQuotationAmount !==
           Number(
-            existingCustomer.quotationAmount || 0
+            existingCustomer.quotationAmount ||
+              0
           )
         ) {
           data.quotationAmountUpdatedAt =
@@ -1135,7 +1224,9 @@ router.patch(
         });
       }
 
-      res.json(customer);
+      res.json(
+        customer
+      );
     } catch (error) {
       console.error(error);
 
@@ -1150,154 +1241,182 @@ router.patch(
    FOLLOW-UPS
    ======================================================== */
 
-router.get('/followups', async (req, res) => {
-  try {
-    const followups =
-      await FollowUp.find()
-        .populate('customer')
-        .sort({
-          dueAt: 1
-        });
+router.get(
+  '/followups',
+  async (req, res) => {
+    try {
+      const followups =
+        await FollowUp.find()
+          .populate('customer')
+          .sort({
+            dueAt: 1
+          });
 
-    res.json(followups);
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      message: error.message
-    });
-  }
-});
-
-router.post('/followups', async (req, res) => {
-  try {
-    const data = {
-      ...req.body
-    };
-
-    if (!data.customer) {
-      return res.status(400).json({
-        message:
-          'Customer is required.'
-      });
-    }
-
-    if (!data.dueAt) {
-      return res.status(400).json({
-        message:
-          'Follow-up date and time are required.'
-      });
-    }
-
-    /*
-     * Get customer.
-     */
-    const customer =
-      await Customer.findById(
-        data.customer
+      res.json(
+        followups
       );
+    } catch (error) {
+      console.error(error);
 
-    if (!customer) {
-      return res.status(404).json({
-        message:
-          'Customer not found.'
+      res.status(500).json({
+        message: error.message
       });
     }
+  }
+);
 
-    /*
-     * If salesperson isn't selected,
-     * inherit it from customer.
-     */
-    if (!data.salesperson) {
-      data.salesperson =
-        customer.assignedSalesperson || '';
-    }
+router.post(
+  '/followups',
+  async (req, res) => {
+    try {
+      const data = {
+        ...req.body
+      };
 
-    /*
-     * Resolve salesperson against master.
-     */
-    if (data.salesperson) {
-      const salesperson =
-        await findSalesperson(
-          data.salesperson
+      if (!data.customer) {
+        return res.status(400).json({
+          message:
+            'Customer is required.'
+        });
+      }
+
+      if (!data.dueAt) {
+        return res.status(400).json({
+          message:
+            'Follow-up date and time are required.'
+        });
+      }
+
+      /*
+       * Get customer.
+       */
+      const customer =
+        await Customer.findById(
+          data.customer
         );
 
-      if (salesperson) {
+      if (!customer) {
+        return res.status(404).json({
+          message:
+            'Customer not found.'
+        });
+      }
+
+      /*
+       * If salesperson isn't selected,
+       * inherit it from customer.
+       */
+      if (!data.salesperson) {
         data.salesperson =
-          salesperson.name;
-      } else {
-        data.salesperson =
-          cleanName(
+          customer.assignedSalesperson ||
+          '';
+      }
+
+      /*
+       * Resolve salesperson against master.
+       */
+      if (data.salesperson) {
+        const salesperson =
+          await findSalesperson(
             data.salesperson
           );
-      }
-    }
 
-    /*
-     * DUPLICATE PROTECTION
-     */
-    const dueDate =
-      new Date(data.dueAt);
-
-    if (
-      Number.isNaN(
-        dueDate.getTime()
-      )
-    ) {
-      return res.status(400).json({
-        message:
-          'Invalid follow-up date/time.'
-      });
-    }
-
-    const duplicateSince =
-      new Date(
-        Date.now() - 30000
-      );
-
-    const duplicate =
-      await FollowUp.findOne({
-        customer: data.customer,
-        salesperson: data.salesperson,
-        dueAt: dueDate,
-        type: data.type || 'Call',
-        status: 'Pending',
-        createdAt: {
-          $gte: duplicateSince
+        if (salesperson) {
+          data.salesperson =
+            salesperson.name;
+        } else {
+          data.salesperson =
+            cleanName(
+              data.salesperson
+            );
         }
-      });
+      }
 
-    if (duplicate) {
-      return res.status(409).json({
-        message:
-          'This follow-up was already created. Duplicate submission was blocked.',
-        followup: duplicate
+      /*
+       * DUPLICATE PROTECTION
+       */
+      const dueDate =
+        new Date(
+          data.dueAt
+        );
+
+      if (
+        Number.isNaN(
+          dueDate.getTime()
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            'Invalid follow-up date/time.'
+        });
+      }
+
+      const duplicateSince =
+        new Date(
+          Date.now() -
+            30000
+        );
+
+      const duplicate =
+        await FollowUp.findOne({
+          customer:
+            data.customer,
+
+          salesperson:
+            data.salesperson,
+
+          dueAt:
+            dueDate,
+
+          type:
+            data.type ||
+            'Call',
+
+          status:
+            'Pending',
+
+          createdAt: {
+            $gte:
+              duplicateSince
+          }
+        });
+
+      if (duplicate) {
+        return res.status(409).json({
+          message:
+            'This follow-up was already created. Duplicate submission was blocked.',
+          followup:
+            duplicate
+        });
+      }
+
+      data.dueAt =
+        dueDate;
+
+      const followup =
+        await FollowUp.create(
+          data
+        );
+
+      const populatedFollowup =
+        await FollowUp.findById(
+          followup._id
+        ).populate(
+          'customer'
+        );
+
+      res.status(201).json(
+        populatedFollowup
+      );
+    } catch (error) {
+      console.error(error);
+
+      res.status(400).json({
+        message: error.message
       });
     }
-
-    data.dueAt = dueDate;
-
-    const followup =
-      await FollowUp.create(
-        data
-      );
-
-    const populatedFollowup =
-      await FollowUp.findById(
-        followup._id
-      ).populate('customer');
-
-    res.status(201).json(
-      populatedFollowup
-    );
-  } catch (error) {
-    console.error(error);
-
-    res.status(400).json({
-      message: error.message
-    });
   }
-});
+);
 
 router.patch(
   '/followups/:id',
@@ -1323,7 +1442,9 @@ router.patch(
             new: true,
             runValidators: true
           }
-        ).populate('customer');
+        ).populate(
+          'customer'
+        );
 
       if (!followup) {
         return res.status(404).json({
@@ -1332,7 +1453,9 @@ router.patch(
         });
       }
 
-      res.json(followup);
+      res.json(
+        followup
+      );
     } catch (error) {
       console.error(error);
 
@@ -1347,95 +1470,131 @@ router.patch(
    DASHBOARD SUMMARY
    ======================================================== */
 
-router.get('/summary', async (req, res) => {
-  try {
-    const now = new Date();
+router.get(
+  '/summary',
+  async (req, res) => {
+    try {
+      const now =
+        new Date();
 
-    const end =
-      new Date(now);
+      const end =
+        new Date(
+          now
+        );
 
-    end.setHours(
-      23,
-      59,
-      59,
-      999
-    );
+      end.setHours(
+        23,
+        59,
+        59,
+        999
+      );
 
-    const [
-      customers,
-      pending,
-      today,
-      overdue,
-      completed,
-      converted
-    ] = await Promise.all([
-      Customer.countDocuments(),
+      const [
+        customers,
+        pending,
+        today,
+        overdue,
+        completed,
+        converted
+      ] =
+        await Promise.all([
+          Customer.countDocuments(),
 
-      FollowUp.countDocuments({
-        status: 'Pending'
-      }),
+          FollowUp.countDocuments({
+            status:
+              'Pending'
+          }),
 
-      FollowUp.countDocuments({
-        status: 'Pending',
-        dueAt: {
-          $gte: now,
-          $lte: end
-        }
-      }),
+          FollowUp.countDocuments({
+            status:
+              'Pending',
 
-      FollowUp.countDocuments({
-        status: 'Pending',
-        dueAt: {
-          $lt: now
-        }
-      }),
+            dueAt: {
+              $gte:
+                now,
 
-      FollowUp.countDocuments({
-        status: 'Completed'
-      }),
+              $lte:
+                end
+            }
+          }),
 
-      Customer.countDocuments({
-        status: 'Converted'
-      })
-    ]);
+          FollowUp.countDocuments({
+            status:
+              'Pending',
 
-    const quotationResult =
-      await Customer.aggregate([
-        {
-          $group: {
-            _id: null,
-            total: {
-              $sum: {
-                $ifNull: [
-                  '$quotationAmount',
-                  0
-                ]
+            dueAt: {
+              $lt:
+                now
+            }
+          }),
+
+          FollowUp.countDocuments({
+            status:
+              'Completed'
+          }),
+
+          Customer.countDocuments({
+            status:
+              'Converted'
+          })
+        ]);
+
+      const quotationResult =
+        await Customer.aggregate([
+          {
+            $group: {
+              _id:
+                null,
+
+              total: {
+                $sum: {
+                  $ifNull: [
+                    '$quotationAmount',
+                    0
+                  ]
+                }
               }
             }
           }
-        }
-      ]);
+        ]);
 
-    const quotationAmount =
-      quotationResult[0]?.total || 0;
+      const quotationAmount =
+        quotationResult[0]?.total ||
+        0;
 
-    res.json({
-      customers,
-      pending,
-      today,
-      overdue,
-      completed,
-      converted,
-      quotationAmount
-    });
-  } catch (error) {
-    console.error(error);
+      res.json({
+        customers,
+        pending,
+        today,
+        overdue,
+        completed,
+        converted,
+        quotationAmount
+      });
+    } catch (error) {
+      console.error(error);
 
-    res.status(500).json({
-      message: error.message
-    });
+      res.status(500).json({
+        message:
+          error.message
+      });
+    }
   }
-});
+);
+
+/* ========================================================
+   START BACKGROUND REMINDER CHECK
+   ======================================================== */
+
+if (
+  VAPID_PUBLIC_KEY &&
+  VAPID_PRIVATE_KEY
+) {
+  setInterval(
+    checkDueFollowUpReminders,
+    30000
+  );
+}
 
 /* ========================================================
    EXPORT
