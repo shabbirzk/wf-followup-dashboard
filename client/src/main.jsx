@@ -501,26 +501,54 @@ function App() {
 
   useEffect(() => {
     if (!followUps.length) {
-      setReminderFollowUps([]);
       return;
     }
 
+    const getMasterCustomer = (followUp) => {
+      return customers.find((customer) =>
+        (followUp.customer?._id &&
+          String(customer._id) === String(followUp.customer._id)) ||
+        (followUp.customer?.customerCode &&
+          String(customer.customerCode) === String(followUp.customer.customerCode)) ||
+        (!followUp.customer?._id &&
+          !followUp.customer?.customerCode &&
+          followUp.customer?.name &&
+          normalizeName(customer.name) === normalizeName(followUp.customer.name))
+      );
+    };
+
     const checkReminders = () => {
       const now = Date.now();
-      const reminders = followUps.filter(
-        (followUp) => {
-          if (followUp.status !== "Pending") {
+      const selectedSalesperson = normalizeName(
+        notificationSalesperson
+      );
+
+      if (!selectedSalesperson) {
+        return;
+      }
+
+      const reminders = followUps
+        .filter((followUp) => {
+          const followUpStatus = normalizeName(
+            followUp.status
+          );
+
+          if (followUpStatus !== "pending") {
             return false;
           }
 
-          const customerStatus =
-            normalizeName(
-              followUp.customer?.status
-            );
+          const masterCustomer = getMasterCustomer(followUp);
+
+          const customerStatus = normalizeName(
+            masterCustomer?.status ||
+              followUp.customer?.status ||
+              followUp.customerStatus
+          );
 
           if (
             customerStatus === "converted" ||
-            customerStatus === "completed"
+            customerStatus === "completed" ||
+            customerStatus === "complete"
           ) {
             return false;
           }
@@ -529,10 +557,16 @@ function App() {
             return false;
           }
 
-          const dueTime =
-            new Date(followUp.dueAt).getTime();
+          const dueTime = new Date(followUp.dueAt).getTime();
 
           if (Number.isNaN(dueTime) || dueTime > now) {
+            return false;
+          }
+
+          if (
+            normalizeName(followUp.salesperson) !==
+            selectedSalesperson
+          ) {
             return false;
           }
 
@@ -543,46 +577,54 @@ function App() {
             return false;
           }
 
-          if (!notificationSalesperson) {
-            return false;
-          }
-
-          if (
-            normalizeName(followUp.salesperson) !==
-            normalizeName(notificationSalesperson)
-          ) {
-            return false;
-          }
-
           return true;
-        }
-      );
-
-      if (reminders.length) {
-        reminders.forEach((followUp) => {
-          localStorage.setItem(
-            `wf-followup-reminder-${followUp._id}-${followUp.dueAt}`,
-            "1"
-          );
-        });
-
-        setReminderFollowUps(
-          reminders
+        })
+        .sort(
+          (a, b) =>
+            new Date(a.dueAt) - new Date(b.dueAt)
         );
+
+      if (!reminders.length) {
+        return;
       }
+
+      reminders.forEach((followUp) => {
+        const key =
+          `wf-followup-reminder-${followUp._id}-${followUp.dueAt}`;
+
+        localStorage.setItem(key, "1");
+        checkedReminderIds.current.add(key);
+      });
+
+      setReminderFollowUps((previous) => {
+        const existingIds = new Set(
+          previous.map((item) => String(item._id))
+        );
+
+        const newReminders = reminders.filter(
+          (item) => !existingIds.has(String(item._id))
+        );
+
+        return newReminders.length
+          ? [...previous, ...newReminders]
+          : previous;
+      });
     };
 
     checkReminders();
 
+    // Check frequently enough that a reminder is not missed when the app
+    // stays open around the exact due time.
     const timer = setInterval(
       checkReminders,
-      30000
+      10000
     );
 
     return () =>
       clearInterval(timer);
   }, [
     followUps,
+    customers,
     notificationSalesperson
   ]);
 
@@ -1023,13 +1065,16 @@ const conversionPercentage =
     }
   };
 
-  const isCustomerEditDisabled = (customer) => {
-    const status = String(customer?.status || '').trim().toLowerCase();
-    return ['completed', 'complete', 'converted'].includes(status);
-  };
+  const isClosedStatus = (status) =>
+    ["completed", "complete", "converted"].includes(
+      normalizeName(status)
+    );
+
+  const isCustomerEditDisabled = (customer) =>
+    isClosedStatus(customer?.status);
 
   const openCustomerEdit = (customer) => {
-    if (isCustomerEditDisabled(customer)) {
+    if (!customer || isCustomerEditDisabled(customer)) {
       return;
     }
 
@@ -1049,6 +1094,14 @@ const conversionPercentage =
     e.preventDefault();
 
     if (!editingCustomer) return;
+
+    if (isCustomerEditDisabled(editingCustomer)) {
+      setEditingCustomer(null);
+      alert(
+        "This customer cannot be edited because the status is Completed or Converted."
+      );
+      return;
+    }
 
     try {
       setSavingCustomerEdit(true);
@@ -1314,6 +1367,45 @@ const conversionPercentage =
     async (id) => {
       if (!id) return;
 
+      const followUpToComplete =
+        followUps.find(
+          (followUp) =>
+            String(followUp._id) === String(id)
+        );
+
+      if (!followUpToComplete) {
+        return;
+      }
+
+      const masterCustomer =
+        customers.find((customer) =>
+          (followUpToComplete.customer?._id &&
+            String(customer._id) ===
+              String(followUpToComplete.customer._id)) ||
+          (followUpToComplete.customer?.customerCode &&
+            String(customer.customerCode) ===
+              String(followUpToComplete.customer.customerCode)) ||
+          (!followUpToComplete.customer?._id &&
+            !followUpToComplete.customer?.customerCode &&
+            followUpToComplete.customer?.name &&
+            normalizeName(customer.name) ===
+              normalizeName(followUpToComplete.customer.name))
+        );
+
+      if (
+        normalizeName(followUpToComplete.status) !== "pending" ||
+        isClosedStatus(
+          masterCustomer?.status ||
+            followUpToComplete.customer?.status ||
+            followUpToComplete.customerStatus
+        )
+      ) {
+        alert(
+          "This follow-up cannot be completed because the follow-up or customer is already Completed or Converted."
+        );
+        return;
+      }
+
       try {
         setCompletingId(id);
 
@@ -1356,6 +1448,32 @@ const conversionPercentage =
   const openFollowUpEdit =
     (followUp) => {
       if (!followUp) return;
+
+      const masterCustomer =
+        customers.find((customer) =>
+          (followUp.customer?._id &&
+            String(customer._id) ===
+              String(followUp.customer._id)) ||
+          (followUp.customer?.customerCode &&
+            String(customer.customerCode) ===
+              String(followUp.customer.customerCode)) ||
+          (!followUp.customer?._id &&
+            !followUp.customer?.customerCode &&
+            followUp.customer?.name &&
+            normalizeName(customer.name) ===
+              normalizeName(followUp.customer.name))
+        );
+
+      if (
+        isClosedStatus(followUp.status) ||
+        isClosedStatus(
+          masterCustomer?.status ||
+            followUp.customer?.status ||
+            followUp.customerStatus
+        )
+      ) {
+        return;
+      }
 
       setEditingFollowUp({
         _id:
@@ -1421,6 +1539,36 @@ const conversionPercentage =
   const saveFollowUpEdit =
     async () => {
       if (!editingFollowUp) {
+        return;
+      }
+
+      const masterCustomer =
+        customers.find((customer) =>
+          (editingFollowUp.customer?._id &&
+            String(customer._id) ===
+              String(editingFollowUp.customer._id)) ||
+          (editingFollowUp.customer?.customerCode &&
+            String(customer.customerCode) ===
+              String(editingFollowUp.customer.customerCode)) ||
+          (!editingFollowUp.customer?._id &&
+            !editingFollowUp.customer?.customerCode &&
+            editingFollowUp.customer?.name &&
+            normalizeName(customer.name) ===
+              normalizeName(editingFollowUp.customer.name))
+        );
+
+      if (
+        isClosedStatus(editingFollowUp.status) ||
+        isClosedStatus(
+          masterCustomer?.status ||
+            editingFollowUp.customer?.status ||
+            editingFollowUp.customerStatus
+        )
+      ) {
+        setEditingFollowUp(null);
+        alert(
+          "This follow-up cannot be edited because the follow-up or customer is already Completed or Converted."
+        );
         return;
       }
 
@@ -3405,14 +3553,6 @@ const conversionPercentage =
                               followUp.dueAt
                             );
 
-                          const isFollowUpEditDisabled =
-                            ["Completed", "Converted"].includes(
-                              String(followUp.status || "").trim()
-                            ) ||
-                            ["Completed", "Converted"].includes(
-                              String(followUp.customer?.status || "").trim()
-                            );
-
                           const masterCustomer =
                             customers.find((customer) =>
                               (followUp.customer?._id &&
@@ -3432,6 +3572,10 @@ const conversionPercentage =
                               followUp.customerStatus ||
                               "-"
                             ).trim();
+
+                          const isFollowUpEditDisabled =
+                            isClosedStatus(followUp.status) ||
+                            isClosedStatus(customerStatus);
 
                           const customerKey =
                             followUp.customer?._id ||
@@ -3637,7 +3781,8 @@ const conversionPercentage =
                                   </button>
 
                                   {followUp.status ===
-                                    "Pending" && (
+                                    "Pending" &&
+                                    !isClosedStatus(customerStatus) && (
                                     <button
                                       type="button"
                                       className="btn btn-success"
