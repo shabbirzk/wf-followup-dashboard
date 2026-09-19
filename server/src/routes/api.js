@@ -19,7 +19,7 @@ const VAPID_PRIVATE_KEY =
 
 const VAPID_SUBJECT =
   process.env.VAPID_SUBJECT ||
-  'mailto:admin@example.com';
+  'mailto:admin@westernfurniture.ae';
 
 /*
  * Public API URL used by the service worker for
@@ -75,9 +75,24 @@ const NotificationSubscriptionSchema =
     }
   );
 
+/*
+ * One browser/device push endpoint may be enabled for
+ * multiple salespersons.
+ *
+ * Therefore:
+ *
+ * endpoint + salespersonKey
+ *
+ * is the unique association.
+ */
 NotificationSubscriptionSchema.index(
-  { endpoint: 1, salespersonKey: 1 },
-  { unique: true }
+  {
+    endpoint: 1,
+    salespersonKey: 1
+  },
+  {
+    unique: true
+  }
 );
 
 const NotificationSubscription =
@@ -88,26 +103,36 @@ const NotificationSubscription =
   );
 
 /*
- * Older versions used a unique index on endpoint alone.
- * Remove that legacy index so one browser endpoint can be
- * associated with multiple salespersons.
+ * Remove the old endpoint-only unique index left by
+ * the previous notification system.
+ *
+ * Old:
+ * endpoint: unique
+ *
+ * New:
+ * endpoint + salespersonKey: unique
  */
 const removeLegacyNotificationEndpointIndex =
   async () => {
     try {
       const indexes =
-        await NotificationSubscription.collection.indexes();
+        await NotificationSubscription
+          .collection
+          .indexes();
 
-      const legacyIndex = indexes.find(
-        (index) =>
-          index.name === 'endpoint_1' &&
-          index.unique === true
-      );
+      const legacyIndex =
+        indexes.find(
+          (index) =>
+            index.name === 'endpoint_1' &&
+            index.unique === true
+        );
 
       if (legacyIndex) {
-        await NotificationSubscription.collection.dropIndex(
-          'endpoint_1'
-        );
+        await NotificationSubscription
+          .collection
+          .dropIndex(
+            'endpoint_1'
+          );
 
         console.log(
           '[Notifications] Removed legacy unique endpoint index.'
@@ -174,6 +199,7 @@ const NotificationDelivery =
 
 const cleanName = (value) => {
   if (!value) return '';
+
   return String(value).trim();
 };
 
@@ -185,9 +211,12 @@ const salespersonKey = (value) =>
  * name comparison.
  */
 const findSalesperson = async (name) => {
-  const cleaned = cleanName(name);
+  const cleaned =
+    cleanName(name);
 
-  if (!cleaned) return null;
+  if (!cleaned) {
+    return null;
+  }
 
   const salespersons =
     await Salesperson.find({
@@ -197,7 +226,8 @@ const findSalesperson = async (name) => {
   return (
     salespersons.find(
       (sp) =>
-        cleanName(sp.name).toLowerCase() ===
+        cleanName(sp.name)
+          .toLowerCase() ===
         cleaned.toLowerCase()
     ) || null
   );
@@ -207,6 +237,9 @@ const findSalesperson = async (name) => {
    BROWSER NOTIFICATION / PUSH SUBSCRIPTION
    ======================================================== */
 
+/*
+ * Get VAPID public key.
+ */
 router.get(
   '/notifications/vapid-public-key',
   async (req, res) => {
@@ -222,18 +255,126 @@ router.get(
       }
 
       res.json({
-        publicKey: VAPID_PUBLIC_KEY
+        publicKey:
+          VAPID_PUBLIC_KEY
       });
     } catch (error) {
       console.error(error);
 
       res.status(500).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
 );
 
+/*
+ * ======================================================
+ * GET NOTIFICATION SUBSCRIPTIONS FOR THIS BROWSER
+ * ======================================================
+ *
+ * The browser sends its Push endpoint.
+ *
+ * MongoDB returns every salesperson associated
+ * with that endpoint.
+ *
+ * Example:
+ *
+ * endpoint A
+ *    -> Ahmed
+ *    -> Mushtaq
+ *    -> John
+ *
+ * This is what allows multiple salespersons to
+ * use the same browser.
+ */
+router.get(
+  '/notifications/subscriptions',
+  async (req, res) => {
+    try {
+      const endpoint =
+        cleanName(
+          req.query?.endpoint
+        );
+
+      if (!endpoint) {
+        return res.status(400).json({
+          message:
+            'Push subscription endpoint is required.'
+        });
+      }
+
+      const subscriptions =
+        await NotificationSubscription.find({
+          endpoint
+        }).select({
+          salesperson: 1,
+          salespersonKey: 1,
+          endpoint: 1
+        });
+
+      const salespersons = [];
+
+      subscriptions.forEach(
+        (record) => {
+          const name =
+            cleanName(
+              record.salesperson
+            );
+
+          if (
+            name &&
+            !salespersons.some(
+              (existing) =>
+                salespersonKey(
+                  existing
+                ) ===
+                salespersonKey(name)
+            )
+          ) {
+            salespersons.push(name);
+          }
+        }
+      );
+
+      res.json({
+        success: true,
+        salespersons
+      });
+    } catch (error) {
+      console.error(
+        'Notification subscription status error:',
+        error
+      );
+
+      res.status(500).json({
+        message:
+          error.message
+      });
+    }
+  }
+);
+
+/*
+ * ======================================================
+ * ENABLE NOTIFICATIONS FOR ONE SALESPERSON
+ * ======================================================
+ *
+ * IMPORTANT:
+ *
+ * We DO NOT update by endpoint alone.
+ *
+ * We update by:
+ *
+ * endpoint + salespersonKey
+ *
+ * Therefore the same browser can have:
+ *
+ * endpoint A + Ahmed
+ * endpoint A + Mushtaq
+ * endpoint A + John
+ */
 router.post(
   '/notifications/subscribe',
   async (req, res) => {
@@ -244,7 +385,9 @@ router.post(
       } = req.body;
 
       const cleanedSalesperson =
-        cleanName(salesperson);
+        cleanName(
+          salesperson
+        );
 
       if (!cleanedSalesperson) {
         return res.status(400).json({
@@ -282,44 +425,39 @@ router.post(
         );
 
       /*
-       * One browser endpoint can belong to multiple
-       * salespersons.
+       * IMPORTANT:
        *
-       * Example:
-       *
-       * endpoint + mushtaq
-       * endpoint + ahmed
-       * endpoint + john
-       *
-       * Adding Ahmed will NOT replace Mushtaq.
+       * Same endpoint can belong to
+       * multiple salespersons.
        */
       const saved =
-        await NotificationSubscription.findOneAndUpdate(
-          {
-            endpoint:
-              subscription.endpoint,
+        await NotificationSubscription
+          .findOneAndUpdate(
+            {
+              endpoint:
+                subscription.endpoint,
 
-            salespersonKey:
-              key
-          },
-          {
-            salesperson:
-              officialSalesperson,
+              salespersonKey:
+                key
+            },
+            {
+              salesperson:
+                officialSalesperson,
 
-            salespersonKey:
-              key,
+              salespersonKey:
+                key,
 
-            endpoint:
-              subscription.endpoint,
+              endpoint:
+                subscription.endpoint,
 
-            subscription
-          },
-          {
-            new: true,
-            upsert: true,
-            setDefaultsOnInsert: true
-          }
-        );
+              subscription
+            },
+            {
+              new: true,
+              upsert: true,
+              setDefaultsOnInsert: true
+            }
+          );
 
       res.json({
         success: true,
@@ -337,14 +475,36 @@ router.post(
       );
 
       res.status(400).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
 );
 
 /*
- * Disable notification for ONE salesperson only.
+ * ======================================================
+ * DISABLE NOTIFICATIONS FOR ONE SALESPERSON
+ * ======================================================
+ *
+ * IMPORTANT:
+ *
+ * This does NOT unsubscribe the browser Push
+ * subscription.
+ *
+ * It removes only:
+ *
+ * endpoint + salespersonKey
+ *
+ * So if the browser has:
+ *
+ * Ahmed
+ * Mushtaq
+ * John
+ *
+ * and Ahmed is disabled,
+ *
+ * Mushtaq and John remain active.
  */
 router.delete(
   '/notifications/subscribe',
@@ -380,36 +540,39 @@ router.delete(
         );
 
       /*
-       * Delete ONLY this salesperson.
-       *
-       * If the browser has:
-       *
-       * Mushtaq
-       * Ahmed
-       * John
-       *
-       * and Mushtaq disables notifications,
-       * Ahmed and John remain enabled.
+       * Delete ONLY this salesperson
+       * from this browser.
        */
-      await NotificationSubscription.deleteOne({
-        endpoint,
-        salespersonKey: key
-      });
+      await NotificationSubscription.deleteOne(
+        {
+          endpoint,
+          salespersonKey: key
+        }
+      );
 
+      /*
+       * Check how many salesperson associations
+       * remain for this browser.
+       */
       const remaining =
-        await NotificationSubscription.countDocuments({
-          endpoint
-        });
+        await NotificationSubscription
+          .countDocuments({
+            endpoint
+          });
 
       res.json({
         success: true,
         remaining
       });
     } catch (error) {
-      console.error(error);
+      console.error(
+        'Notification unsubscribe error:',
+        error
+      );
 
       res.status(500).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -433,22 +596,32 @@ const checkDueFollowUpReminders =
     }
 
     try {
-      const now = new Date();
+      const now =
+        new Date();
+
+      console.log(
+        `[Reminder Check] Starting reminder check at ${now.toISOString()}`
+      );
 
       /*
        * Find all pending follow-ups that are due.
        *
        * This includes overdue follow-ups as well.
-       * Each follow-up is delivered only once per
-       * salesperson.
        */
       const followups =
         await FollowUp.find({
           status: 'Pending',
+
           dueAt: {
             $lte: now
           }
-        }).populate('customer');
+        }).populate(
+          'customer'
+        );
+
+      console.log(
+        `[Reminder Check] Pending overdue follow-ups found: ${followups.length}`
+      );
 
       if (!followups.length) {
         return;
@@ -466,13 +639,23 @@ const checkDueFollowUpReminders =
               followup.salesperson
             )
           ) {
+            console.log(
+              `[Reminder Check] Skipped follow-up ${followup._id}: salesperson is missing.`
+            );
+
             continue;
           }
 
           /*
            * Ignore deleted/missing customers.
            */
-          if (!followup.customer) {
+          if (
+            !followup.customer
+          ) {
+            console.log(
+              `[Reminder Check] Skipped follow-up ${followup._id}: customer is missing.`
+            );
+
             continue;
           }
 
@@ -494,6 +677,10 @@ const checkDueFollowUpReminders =
             customerStatus ===
               'completed'
           ) {
+            console.log(
+              `[Reminder Check] Skipped follow-up ${followup._id}: customer status is ${customerStatus}.`
+            );
+
             continue;
           }
 
@@ -503,18 +690,27 @@ const checkDueFollowUpReminders =
             );
 
           /*
-           * Find all browsers/devices registered
+           * Find ALL browsers/devices registered
            * for this salesperson.
            */
           const subscriptions =
-            await NotificationSubscription.find({
-              salespersonKey:
-                spKey
-            });
+            await NotificationSubscription
+              .find({
+                salespersonKey:
+                  spKey
+              });
+
+          console.log(
+            `[Reminder Check] Follow-up ${followup._id} | Salesperson: "${followup.salesperson}" | Key: "${spKey}" | Browser subscriptions: ${subscriptions.length}`
+          );
 
           if (
             !subscriptions.length
           ) {
+            console.log(
+              `[Reminder Check] No browser subscription found for salesperson "${followup.salesperson}".`
+            );
+
             continue;
           }
 
@@ -535,7 +731,9 @@ const checkDueFollowUpReminders =
                   new Date()
               }
             );
-          } catch (deliveryError) {
+          } catch (
+            deliveryError
+          ) {
             /*
              * Duplicate key means this reminder was
              * already processed.
@@ -544,6 +742,10 @@ const checkDueFollowUpReminders =
               deliveryError?.code ===
               11000
             ) {
+              console.log(
+                `[Reminder Check] Follow-up ${followup._id} already has a delivery record for salesperson "${followup.salesperson}".`
+              );
+
               continue;
             }
 
@@ -562,7 +764,8 @@ const checkDueFollowUpReminders =
           const followupType =
             cleanName(
               followup.type
-            ) || 'Follow-up';
+            ) ||
+            'Follow-up';
 
           const priority =
             cleanName(
@@ -577,11 +780,17 @@ const checkDueFollowUpReminders =
               {
                 timeZone:
                   'Asia/Dubai',
+
                 day: '2-digit',
+
                 month: '2-digit',
+
                 year: 'numeric',
+
                 hour: '2-digit',
+
                 minute: '2-digit',
+
                 hour12: true
               }
             );
@@ -622,8 +831,17 @@ const checkDueFollowUpReminders =
                 PUBLIC_API_URL
             });
 
-          let successfulSends = 0;
+          console.log(
+            `[Reminder Check] Attempting push notification for follow-up ${followup._id} to ${subscriptions.length} subscription(s).`
+          );
 
+          let successfulSends =
+            0;
+
+          /*
+           * Send to every browser/device registered
+           * for this salesperson.
+           */
           for (
             const record of subscriptions
           ) {
@@ -634,7 +852,13 @@ const checkDueFollowUpReminders =
               );
 
               successfulSends++;
-            } catch (pushError) {
+
+              console.log(
+                `[Reminder Check] Push notification sent successfully for follow-up ${followup._id} to subscription ${record._id}.`
+              );
+            } catch (
+              pushError
+            ) {
               console.error(
                 'Push notification error:',
                 pushError
@@ -650,35 +874,39 @@ const checkDueFollowUpReminders =
                 pushError?.statusCode ===
                   410
               ) {
-                await NotificationSubscription.deleteOne(
-                  {
+                await NotificationSubscription
+                  .deleteOne({
                     _id:
                       record._id
-                  }
-                );
+                  });
               }
             }
           }
 
+          console.log(
+            `[Reminder Check] Follow-up ${followup._id} completed with ${successfulSends} successful push send(s).`
+          );
+
           /*
            * If every subscription failed, remove the
-           * delivery record so the system can retry on
-           * the next scheduler run.
+           * delivery record so the system can retry.
            */
           if (
-            successfulSends === 0
+            successfulSends ===
+            0
           ) {
-            await NotificationDelivery.deleteOne(
-              {
+            await NotificationDelivery
+              .deleteOne({
                 followUp:
                   followup._id,
 
                 salespersonKey:
                   spKey
-              }
-            );
+              });
           }
-        } catch (followupError) {
+        } catch (
+          followupError
+        ) {
           console.error(
             `Reminder processing error for follow-up ${followup._id}:`,
             followupError
@@ -705,6 +933,7 @@ router.post(
 
       res.json({
         success: true,
+
         message:
           'Follow-up reminder check completed.'
       });
@@ -712,7 +941,8 @@ router.post(
       console.error(error);
 
       res.status(500).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -759,11 +989,10 @@ router.post(
        * The delivery record is intentionally kept so
        * the same due reminder is not immediately sent
        * again by the scheduler.
-       *
-       * The follow-up remains Pending.
        */
       if (
-        action === 'dismiss'
+        action ===
+        'dismiss'
       ) {
         return res.json({
           success: true,
@@ -791,11 +1020,11 @@ router.post(
        *
        * Move the follow-up 10 minutes into
        * the future and remove the previous
-       * delivery record so the reminder can
-       * be sent again after the snooze period.
+       * delivery records.
        */
       if (
-        action === 'snooze'
+        action ===
+        'snooze'
       ) {
         if (
           followup.status !==
@@ -803,7 +1032,9 @@ router.post(
         ) {
           return res.json({
             success: true,
+
             action: 'snooze',
+
             message:
               'Follow-up is no longer pending.'
           });
@@ -812,7 +1043,9 @@ router.post(
         const snoozedUntil =
           new Date(
             Date.now() +
-              10 * 60 * 1000
+              10 *
+                60 *
+                1000
           );
 
         followup.dueAt =
@@ -820,14 +1053,17 @@ router.post(
 
         await followup.save();
 
-        await NotificationDelivery.deleteMany({
-          followUp:
-            followup._id
-        });
+        await NotificationDelivery
+          .deleteMany({
+            followUp:
+              followup._id
+          });
 
         return res.json({
           success: true,
+
           action: 'snooze',
+
           dueAt:
             snoozedUntil
         });
@@ -840,7 +1076,8 @@ router.post(
        * remove its notification delivery record.
        */
       if (
-        action === 'complete'
+        action ===
+        'complete'
       ) {
         followup.status =
           'Completed';
@@ -850,13 +1087,15 @@ router.post(
 
         await followup.save();
 
-        await NotificationDelivery.deleteMany({
-          followUp:
-            followup._id
-        });
+        await NotificationDelivery
+          .deleteMany({
+            followUp:
+              followup._id
+          });
 
         return res.json({
           success: true,
+
           action: 'complete'
         });
       }
@@ -883,16 +1122,20 @@ router.get(
   async (req, res) => {
     try {
       const salespersons =
-        await Salesperson.find().sort({
-          name: 1
-        });
+        await Salesperson.find()
+          .sort({
+            name: 1
+          });
 
-      res.json(salespersons);
+      res.json(
+        salespersons
+      );
     } catch (error) {
       console.error(error);
 
       res.status(500).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -925,6 +1168,7 @@ router.post(
                 /[.*+?^${}()|[\]\\]/g,
                 '\\$&'
               )}$`,
+
             $options: 'i'
           }
         });
@@ -938,16 +1182,16 @@ router.post(
 
       /*
        * Generate next available salesperson code.
-       * This is safer than countDocuments because deleted
-       * records could otherwise create duplicate codes.
        */
       const last =
         await Salesperson.findOne()
           .sort({
-            salespersonCode: -1
+            salespersonCode:
+              -1
           });
 
-      let nextNumber = 1;
+      let nextNumber =
+        1;
 
       if (
         last?.salespersonCode
@@ -959,7 +1203,9 @@ router.post(
 
         if (match) {
           nextNumber =
-            Number(match[1]) + 1;
+            Number(
+              match[1]
+            ) + 1;
         }
       }
 
@@ -974,7 +1220,9 @@ router.post(
       const salesperson =
         await Salesperson.create({
           ...req.body,
+
           name,
+
           salespersonCode
         });
 
@@ -985,7 +1233,8 @@ router.post(
       console.error(error);
 
       res.status(400).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -1007,14 +1256,15 @@ router.patch(
       }
 
       const salesperson =
-        await Salesperson.findByIdAndUpdate(
-          req.params.id,
-          data,
-          {
-            new: true,
-            runValidators: true
-          }
-        );
+        await Salesperson
+          .findByIdAndUpdate(
+            req.params.id,
+            data,
+            {
+              new: true,
+              runValidators: true
+            }
+          );
 
       if (!salesperson) {
         return res.status(404).json({
@@ -1030,7 +1280,8 @@ router.patch(
       console.error(error);
 
       res.status(400).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -1045,16 +1296,20 @@ router.get(
   async (req, res) => {
     try {
       const customers =
-        await Customer.find().sort({
-          createdAt: -1
-        });
+        await Customer.find()
+          .sort({
+            createdAt: -1
+          });
 
-      res.json(customers);
+      res.json(
+        customers
+      );
     } catch (error) {
       console.error(error);
 
       res.status(500).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -1077,9 +1332,6 @@ router.post(
           );
 
         if (salesperson) {
-          /*
-           * Always store the official master name.
-           */
           data.assignedSalesperson =
             salesperson.name;
         } else {
@@ -1104,7 +1356,9 @@ router.post(
       const customer =
         await Customer.create({
           ...data,
+
           customerCode,
+
           quotationAmount:
             Number(
               data.quotationAmount ||
@@ -1119,7 +1373,8 @@ router.post(
       console.error(error);
 
       res.status(400).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -1154,8 +1409,6 @@ router.patch(
 
       /*
        * Quotation amount revision tracking.
-       * Preserve the first quotation amount as the
-       * original amount and record revision details.
        */
       if (
         Object.prototype.hasOwnProperty.call(
@@ -1231,7 +1484,8 @@ router.patch(
       console.error(error);
 
       res.status(400).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -1247,7 +1501,9 @@ router.get(
     try {
       const followups =
         await FollowUp.find()
-          .populate('customer')
+          .populate(
+            'customer'
+          )
           .sort({
             dueAt: 1
           });
@@ -1259,7 +1515,8 @@ router.get(
       console.error(error);
 
       res.status(500).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -1333,7 +1590,7 @@ router.post(
       }
 
       /*
-       * DUPLICATE PROTECTION
+       * Duplicate protection.
        */
       const dueDate =
         new Date(
@@ -1385,6 +1642,7 @@ router.post(
         return res.status(409).json({
           message:
             'This follow-up was already created. Duplicate submission was blocked.',
+
           followup:
             duplicate
         });
@@ -1412,7 +1670,8 @@ router.post(
       console.error(error);
 
       res.status(400).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -1460,7 +1719,8 @@ router.patch(
       console.error(error);
 
       res.status(400).json({
-        message: error.message
+        message:
+          error.message
       });
     }
   }
@@ -1478,9 +1738,7 @@ router.get(
         new Date();
 
       const end =
-        new Date(
-          now
-        );
+        new Date(now);
 
       end.setHours(
         23,
@@ -1543,8 +1801,7 @@ router.get(
         await Customer.aggregate([
           {
             $group: {
-              _id:
-                null,
+              _id: null,
 
               total: {
                 $sum: {
@@ -1583,28 +1840,16 @@ router.get(
 );
 
 /* ========================================================
-   START BACKGROUND REMINDER CHECK
-   ======================================================== */
-
-if (
-  VAPID_PUBLIC_KEY &&
-  VAPID_PRIVATE_KEY
-) {
-  setInterval(
-    checkDueFollowUpReminders,
-    30000
-  );
-}
-
-/* ========================================================
    EXPORT
    ======================================================== */
 
-module.exports = router;
+module.exports =
+  router;
 
 /*
  * Export reminder checker so server/index.js can
  * start the automatic reminder scheduler.
  */
-module.exports.checkDueFollowUpReminders =
+module.exports
+  .checkDueFollowUpReminders =
   checkDueFollowUpReminders;
