@@ -374,7 +374,7 @@ function App() {
   const [
     followUpStatusFilter,
     setFollowUpStatusFilter
-  ] = useState("All");
+  ] = useState("Pending");
 
   const [
     followUpSalespersonFilter,
@@ -3729,10 +3729,6 @@ const conversionPercentage =
                     )
                   }
                 >
-
-                  <option value="All">
-                    All Status
-                  </option>
 
                   <option value="Pending">
                     Pending
