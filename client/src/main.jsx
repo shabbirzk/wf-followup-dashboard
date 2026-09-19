@@ -452,6 +452,42 @@ function App() {
     );
   };
 
+  const saveNotificationSalespersons = (names) => {
+    const unique = [];
+
+    (Array.isArray(names) ? names : []).forEach((name) => {
+      const cleaned = String(name || "").trim();
+
+      if (!cleaned) return;
+
+      if (
+        !unique.some(
+          (existing) =>
+            normalizeName(existing) ===
+            normalizeName(cleaned)
+        )
+      ) {
+        unique.push(cleaned);
+      }
+    });
+
+    localStorage.setItem(
+      "wfNotificationSalespersons",
+      JSON.stringify(unique)
+    );
+
+    return unique;
+  };
+
+  const getCurrentPushSubscription = async () => {
+    const registration =
+      await navigator.serviceWorker.register("/sw.js");
+
+    await navigator.serviceWorker.ready;
+
+    return registration.pushManager.getSubscription();
+  };
+
   const enableNotifications = async () => {
     if (!notificationSalesperson) {
       alert(
@@ -460,7 +496,10 @@ function App() {
       return;
     }
 
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    if (
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window)
+    ) {
       alert(
         "Browser notifications are not supported in this browser."
       );
@@ -480,6 +519,8 @@ function App() {
 
       const registration =
         await navigator.serviceWorker.register("/sw.js");
+
+      await navigator.serviceWorker.ready;
 
       const vapidResponse =
         await axios.get(
@@ -516,20 +557,10 @@ function App() {
         notificationSalesperson;
 
       setNotificationSalespersons((previous) => {
-        const exists = previous.some(
-          (name) =>
-            normalizeName(name) ===
-            normalizeName(officialSalesperson)
-        );
-
-        const updated = exists
-          ? previous
-          : [...previous, officialSalesperson];
-
-        localStorage.setItem(
-          "wfNotificationSalespersons",
-          JSON.stringify(updated)
-        );
+        const updated = saveNotificationSalespersons([
+          ...previous,
+          officialSalesperson
+        ]);
 
         return updated;
       });
@@ -560,12 +591,14 @@ function App() {
   };
 
   const disableNotifications = async () => {
-    try {
-      const registration =
-        await navigator.serviceWorker.getRegistration("/");
+    const salespersonToDisable =
+      notificationSalesperson;
 
+    if (!salespersonToDisable) return;
+
+    try {
       const subscription =
-        await registration?.pushManager.getSubscription();
+        await getCurrentPushSubscription();
 
       if (subscription) {
         await axios.delete(
@@ -573,7 +606,7 @@ function App() {
           {
             data: {
               endpoint: subscription.endpoint,
-              salesperson: notificationSalesperson
+              salesperson: salespersonToDisable
             }
           }
         );
@@ -583,23 +616,39 @@ function App() {
         const updated = previous.filter(
           (name) =>
             normalizeName(name) !==
-            normalizeName(notificationSalesperson)
+            normalizeName(salespersonToDisable)
         );
 
-        localStorage.setItem(
-          "wfNotificationSalespersons",
-          JSON.stringify(updated)
+        const saved =
+          saveNotificationSalespersons(updated);
+
+        const nextCurrent =
+          saved[0] || "";
+
+        if (nextCurrent) {
+          localStorage.setItem(
+            "wfNotificationSalesperson",
+            nextCurrent
+          );
+        } else {
+          localStorage.removeItem(
+            "wfNotificationSalesperson"
+          );
+        }
+
+        setNotificationSalesperson(
+          nextCurrent
+        );
+        setNotificationsEnabled(
+          Boolean(nextCurrent)
         );
 
-        return updated;
+        return saved;
       });
 
-      localStorage.removeItem(
-        "wfNotificationSalesperson"
+      setNotificationMessage(
+        ""
       );
-
-      setNotificationsEnabled(false);
-      setNotificationMessage("");
     } catch (error) {
       console.error(
         "Notification disable error:",
@@ -616,126 +665,136 @@ function App() {
     let cancelled = false;
 
     const restoreNotificationState = async () => {
-      let savedSalespersons = [];
-
-      try {
-        const parsed =
-          JSON.parse(
-            localStorage.getItem(
-              "wfNotificationSalespersons"
-            ) || "[]"
-          );
-
-        if (Array.isArray(parsed)) {
-          savedSalespersons = parsed.filter(Boolean);
+      if (
+        !("Notification" in window) ||
+        Notification.permission !== "granted" ||
+        !("serviceWorker" in navigator) ||
+        !("PushManager" in window)
+      ) {
+        if (!cancelled) {
+          setNotificationsEnabled(false);
         }
-      } catch (error) {
-        console.error(
-          "Notification salesperson list restore error:",
-          error
-        );
+        return;
       }
 
-      const legacySalesperson =
-        localStorage.getItem(
-          "wfNotificationSalesperson"
-        ) || "";
+      try {
+        const subscription =
+          await getCurrentPushSubscription();
 
-      if (
-        !savedSalespersons.length &&
-        legacySalesperson
-      ) {
-        savedSalespersons = [
-          legacySalesperson
-        ];
+        if (!subscription) {
+          if (!cancelled) {
+            setNotificationSalespersons([]);
+            setNotificationsEnabled(false);
+          }
+          return;
+        }
+
+        /*
+         * MongoDB is the source of truth. The endpoint is
+         * unique to this browser/device, while MongoDB can
+         * associate that endpoint with many salespersons.
+         */
+        const response =
+          await axios.get(
+            `${API}/notifications/subscriptions`,
+            {
+              params: {
+                endpoint: subscription.endpoint
+              }
+            }
+          );
+
+        const serverSalespersons =
+          Array.isArray(
+            response.data?.salespersons
+          )
+            ? response.data.salespersons.filter(Boolean)
+            : [];
+
+        if (cancelled) return;
+
+        const saved =
+          saveNotificationSalespersons(
+            serverSalespersons
+          );
+
+        if (!saved.length) {
+          localStorage.removeItem(
+            "wfNotificationSalesperson"
+          );
+          setNotificationSalesperson("");
+          setNotificationsEnabled(false);
+          setNotificationMessage("");
+          return;
+        }
+
+        const savedCurrent =
+          localStorage.getItem(
+            "wfNotificationSalesperson"
+          ) || "";
+
+        const current =
+          saved.find(
+            (name) =>
+              normalizeName(name) ===
+              normalizeName(savedCurrent)
+          ) || saved[0];
 
         localStorage.setItem(
-          "wfNotificationSalespersons",
-          JSON.stringify(savedSalespersons)
+          "wfNotificationSalesperson",
+          current
         );
-      }
 
-      if (!savedSalespersons.length) {
-        if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-        return;
-      }
-
-      if (!("Notification" in window)) {
-        if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-        return;
-      }
-
-      if (Notification.permission !== "granted") {
-        if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-        return;
-      }
-
-      if (!("serviceWorker" in navigator)) {
-        if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
-        return;
-      }
-
-      try {
-        const registration =
-          await navigator.serviceWorker.register(
-            "/sw.js"
-          );
-
-        await navigator.serviceWorker.ready;
-
-        const subscription =
-          await registration.pushManager.getSubscription();
-
-        if (!cancelled && subscription) {
-          const savedCurrent =
-            localStorage.getItem(
-              "wfNotificationSalesperson"
-            ) ||
-            savedSalespersons[0] ||
-            "";
-
-          const current =
-            savedSalespersons.find(
-              (name) =>
-                normalizeName(name) ===
-                normalizeName(savedCurrent)
-            ) || savedSalespersons[0] || "";
-
-          setNotificationSalespersons(
-            savedSalespersons
-          );
-          setNotificationSalesperson(
-            current
-          );
-          setNotificationsEnabled(
-            savedSalespersons.some(
-              (name) =>
-                normalizeName(name) ===
-                normalizeName(current)
-            )
-          );
-          setNotificationMessage(
-            `Reminders enabled for ${current}.`
-          );
-        } else if (!cancelled) {
-          setNotificationsEnabled(false);
-        }
+        setNotificationSalespersons(saved);
+        setNotificationSalesperson(current);
+        setNotificationsEnabled(true);
+        setNotificationMessage(
+          `Reminders enabled for ${current}.`
+        );
       } catch (error) {
         console.error(
           "Restore notification state error:",
           error
         );
 
+        /*
+         * If the server is temporarily unavailable, retain
+         * the locally remembered users instead of deleting
+         * them. The next successful restore will reconcile
+         * them with MongoDB.
+         */
         if (!cancelled) {
-          setNotificationsEnabled(false);
+          try {
+            const local =
+              JSON.parse(
+                localStorage.getItem(
+                  "wfNotificationSalespersons"
+                ) || "[]"
+              );
+
+            const saved =
+              saveNotificationSalespersons(
+                Array.isArray(local) ? local : []
+              );
+
+            const current =
+              saved.find(
+                (name) =>
+                  normalizeName(name) ===
+                  normalizeName(
+                    localStorage.getItem(
+                      "wfNotificationSalesperson"
+                    ) || ""
+                  )
+              ) || saved[0] || "";
+
+            setNotificationSalesperson(current);
+            setNotificationsEnabled(
+              Boolean(current)
+            );
+          } catch {
+            setNotificationsEnabled(false);
+          }
         }
       }
     };
