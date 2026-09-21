@@ -667,12 +667,25 @@ function App() {
     const restoreNotificationState = async () => {
       if (
         !("Notification" in window) ||
-        Notification.permission !== "granted" ||
         !("serviceWorker" in navigator) ||
         !("PushManager" in window)
       ) {
         if (!cancelled) {
-          setNotificationsEnabled(false);
+          const local =
+            JSON.parse(
+              localStorage.getItem(
+                "wfNotificationSalespersons"
+              ) || "[]"
+            );
+
+          const saved =
+            saveNotificationSalespersons(
+              Array.isArray(local) ? local : []
+            );
+
+          setNotificationsEnabled(
+            saved.length > 0
+          );
         }
         return;
       }
@@ -682,9 +695,54 @@ function App() {
           await getCurrentPushSubscription();
 
         if (!subscription) {
+          /*
+           * Keep the locally remembered enabled state after
+           * browser closure or computer restart. Do not turn
+           * the button back to "Enable Notifications" just
+           * because the browser has not restored the Push
+           * subscription yet.
+           *
+           * The existing notification enable/disable logic
+           * remains unchanged.
+           */
           if (!cancelled) {
-            setNotificationSalespersons([]);
-            setNotificationsEnabled(false);
+            try {
+              const local =
+                JSON.parse(
+                  localStorage.getItem(
+                    "wfNotificationSalespersons"
+                  ) || "[]"
+                );
+
+              const saved =
+                saveNotificationSalespersons(
+                  Array.isArray(local)
+                    ? local
+                    : []
+                );
+
+              const current =
+                saved.find(
+                  (name) =>
+                    normalizeName(name) ===
+                    normalizeName(
+                      localStorage.getItem(
+                        "wfNotificationSalesperson"
+                      ) || ""
+                    )
+                ) || saved[0] || "";
+
+              setNotificationSalespersons(saved);
+              setNotificationSalesperson(current);
+              setNotificationsEnabled(
+                Boolean(current)
+              );
+            } catch (restoreError) {
+              console.error(
+                "Local notification state restore error:",
+                restoreError
+              );
+            }
           }
           return;
         }
