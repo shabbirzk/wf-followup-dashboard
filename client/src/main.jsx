@@ -182,7 +182,8 @@ function App() {
       assignedSalesperson: "",
       status: "New",
       productInterest: "",
-      quotationAmount: ""
+      quotationAmount: "",
+      customerVisitDate: ""
     });
 
   const [savingCustomer, setSavingCustomer] =
@@ -1433,7 +1434,8 @@ const conversionPercentage =
         assignedSalesperson: "",
         status: "New",
         productInterest: "",
-        quotationAmount: ""
+        quotationAmount: "",
+        customerVisitDate: ""
       });
 
       await loadData();
@@ -1475,7 +1477,9 @@ const conversionPercentage =
         customer.quotationAmount ??
         0,
       quotationRevisionRemark:
-        customer.quotationRevisionRemark || ''
+        customer.quotationRevisionRemark || '',
+      customerVisitDate:
+        customer.customerVisitDate || ""
     });
   };
 
@@ -3113,6 +3117,25 @@ const conversionPercentage =
 
                 </div>
 
+                <div className="form-group">
+
+                  <label>
+                    Customer Visit Date
+                  </label>
+
+                  <input
+                    type="date"
+                    name="customerVisitDate"
+                    value={
+                      customerForm.customerVisitDate
+                    }
+                    onChange={
+                      handleCustomerChange
+                    }
+                  />
+
+                </div>
+
                 <div className="form-actions">
 
                   <button
@@ -3217,7 +3240,7 @@ const conversionPercentage =
                       <tr>
 
                         <td
-                          colSpan="11"
+                          colSpan="12"
                           className="empty"
                         >
                           No customers
@@ -3861,6 +3884,10 @@ const conversionPercentage =
                       </th>
 
                       <th>
+                        Customer Visit Date
+                      </th>
+
+                      <th>
                         Type
                       </th>
 
@@ -4058,6 +4085,20 @@ const conversionPercentage =
                                   </div>
                                 )}
 
+                              </td>
+
+                              <td>
+                                {masterCustomer?.customerVisitDate
+                                  ? new Date(
+                                      masterCustomer.customerVisitDate
+                                    ).toLocaleDateString(
+                                      "en-GB",
+                                      {
+                                        timeZone:
+                                          DUBAI_TIMEZONE
+                                      }
+                                    )
+                                  : "-"}
                               </td>
 
                               <td>
@@ -4266,6 +4307,20 @@ const conversionPercentage =
                     }))
                   }
                   placeholder="Enter reason for quotation revision"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Customer Visit Date</label>
+                <input
+                  type="date"
+                  value={editingCustomer.customerVisitDate || ''}
+                  onChange={(e) =>
+                    setEditingCustomer((prev) => ({
+                      ...prev,
+                      customerVisitDate: e.target.value
+                    }))
+                  }
                 />
               </div>
 
