@@ -4325,20 +4325,6 @@ const conversionPercentage =
                 />
               </div>
 
-              <div className="form-group">
-                <label>Customer Visit Date</label>
-                <input
-                  type="date"
-                  value={editingCustomer.customerVisitDate || ''}
-                  onChange={(e) =>
-                    setEditingCustomer((prev) => ({
-                      ...prev,
-                      customerVisitDate: e.target.value
-                    }))
-                  }
-                />
-              </div>
-
               <div className="form-actions">
                 <button
                   type="submit"
