@@ -1478,6 +1478,8 @@ const conversionPercentage =
         0,
       quotationRevisionRemark:
         customer.quotationRevisionRemark || '',
+      productInterest:
+        customer.productInterest || "",
       customerVisitDate:
         customer.customerVisitDate || ""
     });
@@ -4307,6 +4309,19 @@ const conversionPercentage =
                     }))
                   }
                   placeholder="Enter reason for quotation revision"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Product Interest</label>
+                <input
+                  value={editingCustomer.productInterest || ''}
+                  onChange={(e) =>
+                    setEditingCustomer((prev) => ({
+                      ...prev,
+                      productInterest: e.target.value
+                    }))
+                  }
                 />
               </div>
 
