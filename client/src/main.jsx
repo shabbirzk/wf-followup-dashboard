@@ -152,6 +152,10 @@ function App() {
   const [followUps, setFollowUps] =
     useState([]);
 
+  const [tasks, setTasks] = useState([]);
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", salesperson: "", customer: "", followUp: "", dueAt: "", priority: "Medium" });
+  const [savingTask, setSavingTask] = useState(false);
+
   const [salespersons, setSalespersons] =
     useState([]);
 
@@ -393,11 +397,13 @@ function App() {
       const [
         customersResponse,
         followUpsResponse,
-        salespersonsResponse
+        salespersonsResponse,
+        tasksResponse
       ] = await Promise.all([
         axios.get(`${API}/customers`),
         axios.get(`${API}/followups`),
-        axios.get(`${API}/salespersons`)
+        axios.get(`${API}/salespersons`),
+        axios.get(`${API}/tasks`).catch(() => ({ data: [] }))
       ]);
 
       setCustomers(
@@ -411,6 +417,8 @@ function App() {
       setSalespersons(
         salespersonsResponse.data || []
       );
+
+      setTasks(tasksResponse.data || []);
     } catch (error) {
       console.error(
         "Load data error:",
@@ -2248,6 +2256,13 @@ const conversionPercentage =
           }
         >
           Follow-ups
+        </button>
+
+        <button
+          className={activeTab === "todo" ? "tab active" : "tab"}
+          onClick={() => setActiveTab("todo")}
+        >
+          To-Do List
         </button>
 
       </nav>
@@ -4234,6 +4249,43 @@ const conversionPercentage =
 
             </div>
 
+          </section>
+        )}
+
+        {activeTab === "todo" && (
+          <section>
+            <div className="page-header">
+              <div><h2>To-Do List</h2><p>Create tasks and receive reminders using the existing browser notification system.</p></div>
+            </div>
+            <div className="card" style={{ padding: "16px", marginBottom: "18px" }}>
+              <form onSubmit={async (event) => {
+                event.preventDefault();
+                if (!taskForm.title.trim() || !taskForm.dueAt) { alert("Task title and due date/time are required."); return; }
+                setSavingTask(true);
+                try {
+                  await axios.post(`${API}/tasks`, { ...taskForm, dueAt: dubaiLocalToISO(taskForm.dueAt), customer: taskForm.customer || null, followUp: taskForm.followUp || null });
+                  setTaskForm({ title: "", description: "", salesperson: "", customer: "", followUp: "", dueAt: "", priority: "Medium" });
+                  await loadData();
+                } catch (error) { alert(error.response?.data?.message || "Unable to save task."); }
+                finally { setSavingTask(false); }
+              }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "10px" }}>
+                <input className="form-control" placeholder="Task title *" value={taskForm.title} onChange={e => setTaskForm(p => ({ ...p, title: e.target.value }))} required />
+                <input className="form-control" placeholder="Description (optional)" value={taskForm.description} onChange={e => setTaskForm(p => ({ ...p, description: e.target.value }))} />
+                <select className="form-control" value={taskForm.salesperson} onChange={e => setTaskForm(p => ({ ...p, salesperson: e.target.value }))}><option value="">Select salesperson</option>{salespersons.map(sp => <option key={sp._id} value={sp.name}>{sp.name}</option>)}</select>
+                <select className="form-control" value={taskForm.customer} onChange={e => setTaskForm(p => ({ ...p, customer: e.target.value }))}><option value="">No customer linked</option>{customers.map(c => <option key={c._id} value={c._id}>{c.customerCode} - {c.name}</option>)}</select>
+                <select className="form-control" value={taskForm.followUp} onChange={e => setTaskForm(p => ({ ...p, followUp: e.target.value }))}><option value="">No follow-up linked</option>{followUps.map(fu => <option key={fu._id} value={fu._id}>{fu.customer?.name || "Customer"} - {fmt(fu.dueAt)} ({fu.status})</option>)}</select>
+                <input className="form-control" type="datetime-local" value={taskForm.dueAt} onChange={e => setTaskForm(p => ({ ...p, dueAt: e.target.value }))} required />
+                <select className="form-control" value={taskForm.priority} onChange={e => setTaskForm(p => ({ ...p, priority: e.target.value }))}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select>
+                <button className="btn btn-primary" type="submit" disabled={savingTask}>{savingTask ? "Saving..." : "Add Task"}</button>
+              </form>
+            </div>
+            <div className="card" style={{ padding: "16px" }}>
+              <h3>Tasks</h3>
+              {tasks.length === 0 ? <p>No tasks yet.</p> : tasks.map(task => <div key={task._id} style={{ padding: "12px 0", borderBottom: "1px solid #e5e7eb", display: "flex", gap: "12px", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+                <div><strong style={{ textDecoration: task.status === "Completed" ? "line-through" : "none" }}>{task.title}</strong><div>{task.description || ""}</div><small>{fmt(task.dueAt)} · {task.salesperson || "Unassigned"} · {task.priority} · {task.status}</small>{task.customer && <div><small>Customer: {task.customer.name || "Linked customer"}</small></div>}{task.followUp && <div><small>Linked follow-up: {task.followUp.type || "Follow-up"}</small></div>}</div>
+                {task.status !== "Completed" && <button className="btn btn-secondary" onClick={async () => { try { await axios.patch(`${API}/tasks/${task._id}`, { status: "Completed" }); await loadData(); } catch (error) { alert(error.response?.data?.message || "Unable to complete task."); } }}>Mark Complete</button>}
+              </div>)}
+            </div>
           </section>
         )}
 
