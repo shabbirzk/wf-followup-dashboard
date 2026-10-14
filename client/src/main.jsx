@@ -153,7 +153,7 @@ function App() {
     useState([]);
 
   const [tasks, setTasks] = useState([]);
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", salesperson: "", customer: "", followUp: "", dueAt: "", priority: "Medium" });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
   const [savingTask, setSavingTask] = useState(false);
 
   const [salespersons, setSalespersons] =
@@ -3688,6 +3688,10 @@ const conversionPercentage =
                       Meeting
                     </option>
 
+                    <option value="Warehouse">
+                      Warehouse
+                    </option>
+
                   </select>
 
                 </div>
@@ -4263,8 +4267,8 @@ const conversionPercentage =
                 if (!taskForm.title.trim() || !taskForm.dueAt) { alert("Task title and due date/time are required."); return; }
                 setSavingTask(true);
                 try {
-                  await axios.post(`${API}/tasks`, { ...taskForm, dueAt: dubaiLocalToISO(taskForm.dueAt), customer: taskForm.customer || null, followUp: taskForm.followUp || null });
-                  setTaskForm({ title: "", description: "", salesperson: "", customer: "", followUp: "", dueAt: "", priority: "Medium" });
+                  await axios.post(`${API}/tasks`, { ...taskForm, dueAt: dubaiLocalToISO(taskForm.dueAt), customer: taskForm.customer || null });
+                  setTaskForm({ title: "", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
                   await loadData();
                 } catch (error) { alert(error.response?.data?.message || "Unable to save task."); }
                 finally { setSavingTask(false); }
@@ -4273,7 +4277,6 @@ const conversionPercentage =
                 <input className="form-control" placeholder="Description (optional)" value={taskForm.description} onChange={e => setTaskForm(p => ({ ...p, description: e.target.value }))} />
                 <select className="form-control" value={taskForm.salesperson} onChange={e => setTaskForm(p => ({ ...p, salesperson: e.target.value }))}><option value="">Select salesperson</option>{salespersons.map(sp => <option key={sp._id} value={sp.name}>{sp.name}</option>)}</select>
                 <select className="form-control" value={taskForm.customer} onChange={e => setTaskForm(p => ({ ...p, customer: e.target.value }))}><option value="">No customer linked</option>{customers.map(c => <option key={c._id} value={c._id}>{c.customerCode} - {c.name}</option>)}</select>
-                <select className="form-control" value={taskForm.followUp} onChange={e => setTaskForm(p => ({ ...p, followUp: e.target.value }))}><option value="">No follow-up linked</option>{followUps.map(fu => <option key={fu._id} value={fu._id}>{fu.customer?.name || "Customer"} - {fmt(fu.dueAt)} ({fu.status})</option>)}</select>
                 <input className="form-control" type="datetime-local" value={taskForm.dueAt} onChange={e => setTaskForm(p => ({ ...p, dueAt: e.target.value }))} required />
                 <select className="form-control" value={taskForm.priority} onChange={e => setTaskForm(p => ({ ...p, priority: e.target.value }))}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select>
                 <button className="btn btn-primary" type="submit" disabled={savingTask}>{savingTask ? "Saving..." : "Add Task"}</button>
@@ -4593,6 +4596,10 @@ const conversionPercentage =
 
                     <option value="Meeting">
                       Meeting
+                    </option>
+
+                    <option value="Warehouse">
+                      Warehouse
                     </option>
 
                   </select>
