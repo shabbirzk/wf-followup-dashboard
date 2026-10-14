@@ -155,6 +155,8 @@ function App() {
   const [tasks, setTasks] = useState([]);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
   const [savingTask, setSavingTask] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [savingTaskEdit, setSavingTaskEdit] = useState(false);
 
   const [salespersons, setSalespersons] =
     useState([]);
@@ -1206,6 +1208,29 @@ const conversionPercentage =
     followUps,
     dashboardSalespersonFilter
   ]);
+
+  /* =====================================================
+     TO-DO DASHBOARD SUMMARY
+     Uses the same salesperson filter as the dashboard.
+  ===================================================== */
+
+  const todoDashboardStats = useMemo(() => {
+    const selectedSalesperson = normalizeName(dashboardSalespersonFilter);
+    const filteredTasks = tasks.filter((task) =>
+      dashboardSalespersonFilter === "All" ||
+      normalizeName(task.salesperson) === selectedSalesperson
+    );
+    const pendingTasks = filteredTasks.filter((task) => task.status !== "Completed");
+    const today = getDubaiToday();
+
+    return {
+      total: filteredTasks.length,
+      pending: pendingTasks.length,
+      today: pendingTasks.filter((task) => getDubaiDate(task.dueAt) === today).length,
+      overdue: pendingTasks.filter((task) => isOverdue(task.dueAt)).length,
+      completed: filteredTasks.filter((task) => task.status === "Completed").length
+    };
+  }, [tasks, dashboardSalespersonFilter]);
 
   /* =====================================================
      CUSTOMER FILTER
@@ -2542,6 +2567,20 @@ const conversionPercentage =
 
                 </div>
 
+              </div>
+
+              <div className="card">
+                <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                  <h3>To-Do Summary</h3>
+                  <button type="button" className="btn btn-secondary" onClick={() => setActiveTab("todo")}>View To-Do List</button>
+                </div>
+                <div className="summary-list">
+                  <div className="summary-row"><span>Total Tasks</span><strong>{todoDashboardStats.total}</strong></div>
+                  <div className="summary-row"><span>Pending</span><strong>{todoDashboardStats.pending}</strong></div>
+                  <div className="summary-row"><span>Due Today</span><strong>{todoDashboardStats.today}</strong></div>
+                  <div className="summary-row"><span>Overdue</span><strong>{todoDashboardStats.overdue}</strong></div>
+                  <div className="summary-row"><span>Completed</span><strong>{todoDashboardStats.completed}</strong></div>
+                </div>
               </div>
 
             </div>
@@ -4268,11 +4307,12 @@ const conversionPercentage =
                 setSavingTask(true);
                 try {
                   await axios.post(`${API}/tasks`, { ...taskForm, dueAt: dubaiLocalToISO(taskForm.dueAt), customer: taskForm.customer || null });
-                  setTaskForm({ title: "", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
+                  setTaskForm({ title: "", type: "Task", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
                   await loadData();
                 } catch (error) { alert(error.response?.data?.message || "Unable to save task."); }
                 finally { setSavingTask(false); }
               }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "10px" }}>
+                <select className="form-control" aria-label="Task type" value={taskForm.type || "Task"} onChange={e => setTaskForm(p => ({ ...p, type: e.target.value }))}><option value="Task">Task</option><option value="Warehouse Follow-up">Warehouse Follow-up</option></select>
                 <input className="form-control" placeholder="Task title *" value={taskForm.title} onChange={e => setTaskForm(p => ({ ...p, title: e.target.value }))} required />
                 <input className="form-control" placeholder="Description (optional)" value={taskForm.description} onChange={e => setTaskForm(p => ({ ...p, description: e.target.value }))} />
                 <select className="form-control" value={taskForm.salesperson} onChange={e => setTaskForm(p => ({ ...p, salesperson: e.target.value }))}><option value="">Select salesperson</option>{salespersons.map(sp => <option key={sp._id} value={sp.name}>{sp.name}</option>)}</select>
@@ -4285,14 +4325,56 @@ const conversionPercentage =
             <div className="card" style={{ padding: "16px" }}>
               <h3>Tasks</h3>
               {tasks.length === 0 ? <p>No tasks yet.</p> : tasks.map(task => <div key={task._id} style={{ padding: "12px 0", borderBottom: "1px solid #e5e7eb", display: "flex", gap: "12px", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
-                <div><strong style={{ textDecoration: task.status === "Completed" ? "line-through" : "none" }}>{task.title}</strong><div>{task.description || ""}</div><small>{fmt(task.dueAt)} · {task.salesperson || "Unassigned"} · {task.priority} · {task.status}</small>{task.customer && <div><small>Customer: {task.customer.name || "Linked customer"}</small></div>}{task.followUp && <div><small>Linked follow-up: {task.followUp.type || "Follow-up"}</small></div>}</div>
-                {task.status !== "Completed" && <button className="btn btn-secondary" onClick={async () => { try { await axios.patch(`${API}/tasks/${task._id}`, { status: "Completed" }); await loadData(); } catch (error) { alert(error.response?.data?.message || "Unable to complete task."); } }}>Mark Complete</button>}
+                <div><strong style={{ textDecoration: task.status === "Completed" ? "line-through" : "none" }}>{task.title}</strong><div><small>Type: {task.type || "Task"}</small></div><div>{task.description || ""}</div><small>{fmt(task.dueAt)} · {task.salesperson || "Unassigned"} · {task.priority} · {task.status}</small>{task.customer && <div><small>Customer: {task.customer.name || "Linked customer"}</small></div>}{task.followUp && <div><small>Linked follow-up: {task.followUp.type || "Follow-up"}</small></div>}</div>
+                <div className="action-buttons">
+                  <button type="button" className="btn btn-secondary" onClick={() => setEditingTask({ ...task, type: task.type || "Task", customer: task.customer?._id || "", dueAt: isoToDubaiLocal(task.dueAt) })}>Edit</button>
+                  {task.status !== "Completed" && <button type="button" className="btn btn-success" onClick={async () => { try { await axios.patch(`${API}/tasks/${task._id}`, { status: "Completed" }); await loadData(); } catch (error) { alert(error.response?.data?.message || "Unable to complete task."); } }}>Complete</button>}
+                </div>
               </div>)}
             </div>
           </section>
         )}
 
       </main>
+
+      {editingTask && (
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget && !savingTaskEdit) setEditingTask(null); }}>
+          <div className="modal-card">
+            <div className="card-header">
+              <h3>Edit To-Do Task</h3>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditingTask(null)} disabled={savingTaskEdit}>Close</button>
+            </div>
+            <form onSubmit={async (event) => {
+              event.preventDefault();
+              if (!editingTask.title?.trim() || !editingTask.dueAt) { alert("Task title and due date/time are required."); return; }
+              setSavingTaskEdit(true);
+              try {
+                await axios.patch(`${API}/tasks/${editingTask._id}`, {
+                  title: editingTask.title,
+                  type: editingTask.type || "Task",
+                  description: editingTask.description || "",
+                  salesperson: editingTask.salesperson || "",
+                  customer: editingTask.customer || null,
+                  dueAt: dubaiLocalToISO(editingTask.dueAt),
+                  priority: editingTask.priority || "Medium"
+                });
+                setEditingTask(null);
+                await loadData();
+              } catch (error) { alert(error.response?.data?.message || "Unable to save task changes."); }
+              finally { setSavingTaskEdit(false); }
+            }}>
+              <div className="form-group"><label>Task Type</label><select value={editingTask.type || "Task"} onChange={e => setEditingTask(p => ({ ...p, type: e.target.value }))}><option value="Task">Task</option><option value="Warehouse Follow-up">Warehouse Follow-up</option></select></div>
+              <div className="form-group"><label>Task Title</label><input value={editingTask.title || ""} onChange={e => setEditingTask(p => ({ ...p, title: e.target.value }))} required /></div>
+              <div className="form-group"><label>Description</label><input value={editingTask.description || ""} onChange={e => setEditingTask(p => ({ ...p, description: e.target.value }))} /></div>
+              <div className="form-group"><label>Salesperson</label><select value={editingTask.salesperson || ""} onChange={e => setEditingTask(p => ({ ...p, salesperson: e.target.value }))}><option value="">Select salesperson</option>{salespersons.map(sp => <option key={sp._id} value={sp.name}>{sp.name}</option>)}</select></div>
+              <div className="form-group"><label>Customer (optional)</label><select value={editingTask.customer || ""} onChange={e => setEditingTask(p => ({ ...p, customer: e.target.value }))}><option value="">No customer linked</option>{customers.map(c => <option key={c._id} value={c._id}>{c.customerCode} - {c.name}</option>)}</select></div>
+              <div className="form-group"><label>Due Date &amp; Time</label><input type="datetime-local" value={editingTask.dueAt || ""} onChange={e => setEditingTask(p => ({ ...p, dueAt: e.target.value }))} required /></div>
+              <div className="form-group"><label>Priority</label><select value={editingTask.priority || "Medium"} onChange={e => setEditingTask(p => ({ ...p, priority: e.target.value }))}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select></div>
+              <div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={() => setEditingTask(null)} disabled={savingTaskEdit}>Cancel</button><button type="submit" className="btn btn-primary" disabled={savingTaskEdit}>{savingTaskEdit ? "Saving..." : "Save Changes"}</button></div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* =================================================
           CUSTOMER EDIT MODAL
