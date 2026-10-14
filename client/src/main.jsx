@@ -153,7 +153,7 @@ function App() {
     useState([]);
 
   const [tasks, setTasks] = useState([]);
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
+  const [taskForm, setTaskForm] = useState({ title: "", type: "Task", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
   const [savingTask, setSavingTask] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [savingTaskEdit, setSavingTaskEdit] = useState(false);
@@ -4312,7 +4312,7 @@ const conversionPercentage =
                 } catch (error) { alert(error.response?.data?.message || "Unable to save task."); }
                 finally { setSavingTask(false); }
               }} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "10px" }}>
-                <select className="form-control" aria-label="Task type" value={taskForm.type || "Task"} onChange={e => setTaskForm(p => ({ ...p, type: e.target.value }))}><option value="Task">Task</option><option value="Warehouse Follow-up">Warehouse Follow-up</option></select>
+                <label style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "13px", fontWeight: 600 }}>Task Type<select className="form-control" aria-label="Task type" value={taskForm.type || "Task"} onChange={e => setTaskForm(p => ({ ...p, type: e.target.value }))}><option value="Task">Task</option><option value="Warehouse Follow-up">Warehouse Follow-up</option></select></label>
                 <input className="form-control" placeholder="Task title *" value={taskForm.title} onChange={e => setTaskForm(p => ({ ...p, title: e.target.value }))} required />
                 <input className="form-control" placeholder="Description (optional)" value={taskForm.description} onChange={e => setTaskForm(p => ({ ...p, description: e.target.value }))} />
                 <select className="form-control" value={taskForm.salesperson} onChange={e => setTaskForm(p => ({ ...p, salesperson: e.target.value }))}><option value="">Select salesperson</option>{salespersons.map(sp => <option key={sp._id} value={sp.name}>{sp.name}</option>)}</select>
