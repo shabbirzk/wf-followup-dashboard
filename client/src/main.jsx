@@ -153,6 +153,9 @@ function App() {
     useState([]);
 
   const [tasks, setTasks] = useState([]);
+  const [taskSearch, setTaskSearch] = useState("");
+  const [taskSalespersonFilter, setTaskSalespersonFilter] = useState("All");
+  const [taskStatusFilter, setTaskStatusFilter] = useState("All");
   const [taskForm, setTaskForm] = useState({ title: "", type: "Task", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
   const [savingTask, setSavingTask] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
@@ -4324,13 +4327,39 @@ const conversionPercentage =
             </div>
             <div className="card" style={{ padding: "16px" }}>
               <h3>Tasks</h3>
-              {tasks.length === 0 ? <p>No tasks yet.</p> : tasks.map(task => <div key={task._id} style={{ padding: "12px 0", borderBottom: "1px solid #e5e7eb", display: "flex", gap: "12px", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "10px", marginBottom: "16px" }}>
+                <input className="form-control" type="search" aria-label="Search tasks" placeholder="Search Task..." value={taskSearch} onChange={e => setTaskSearch(e.target.value)} />
+                <select className="form-control" aria-label="Filter tasks by staff" value={taskSalespersonFilter} onChange={e => setTaskSalespersonFilter(e.target.value)}>
+                  <option value="All">All Staff</option>
+                  {salespersons.map(sp => <option key={sp._id} value={sp.name}>{sp.name}</option>)}
+                </select>
+                <select className="form-control" aria-label="Filter tasks by status" value={taskStatusFilter} onChange={e => setTaskStatusFilter(e.target.value)}>
+                  <option value="All">All Statuses</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              </div>
+              {(() => {
+                const q = taskSearch.trim().toLowerCase();
+                const filteredTasks = tasks.filter(task => {
+                  const customerName = task.customer && typeof task.customer === "object" ? task.customer.name || "" : "";
+                  const searchText = [task.title, task.description, task.type, task.salesperson, customerName, task.priority, task.status].filter(Boolean).join(" ").toLowerCase();
+                  const matchesSearch = !q || searchText.includes(q);
+                  const matchesStaff = taskSalespersonFilter === "All" || (task.salesperson || "") === taskSalespersonFilter;
+                  const status = String(task.status || "Pending").toLowerCase();
+                  const matchesStatus = taskStatusFilter === "All" || status === taskStatusFilter.toLowerCase();
+                  return matchesSearch && matchesStaff && matchesStatus;
+                });
+                return filteredTasks.length === 0
+                  ? <p>{tasks.length === 0 ? "No tasks yet." : "No tasks match your search and filters."}</p>
+                  : filteredTasks.map(task => <div key={task._id} style={{ padding: "12px 0", borderBottom: "1px solid #e5e7eb", display: "flex", gap: "12px", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
                 <div><strong style={{ textDecoration: task.status === "Completed" ? "line-through" : "none" }}>{task.title}</strong><div><small>Type: {task.type || "Task"}</small></div><div>{task.description || ""}</div><small>{fmt(task.dueAt)} · {task.salesperson || "Unassigned"} · {task.priority} · {task.status}</small>{task.customer && <div><small>Customer: {task.customer.name || "Linked customer"}</small></div>}{task.followUp && <div><small>Linked follow-up: {task.followUp.type || "Follow-up"}</small></div>}</div>
                 <div className="action-buttons">
                   <button type="button" className="btn btn-secondary" onClick={() => setEditingTask({ ...task, type: task.type || "Task", customer: task.customer?._id || "", dueAt: isoToDubaiLocal(task.dueAt) })}>Edit</button>
                   {task.status !== "Completed" && <button type="button" className="btn btn-success" onClick={async () => { try { await axios.patch(`${API}/tasks/${task._id}`, { status: "Completed" }); await loadData(); } catch (error) { alert(error.response?.data?.message || "Unable to complete task."); } }}>Complete</button>}
                 </div>
-              </div>)}
+              </div>);
+              })()}
             </div>
           </section>
         )}
