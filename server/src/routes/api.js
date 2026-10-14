@@ -6,6 +6,7 @@ const webpush = require('web-push');
 const Customer = require('../models/Customer');
 const FollowUp = require('../models/FollowUp');
 const Salesperson = require('../models/Salesperson');
+const Task = require('../models/Task');
 
 /* ========================================================
    WEB PUSH CONFIGURATION
@@ -192,6 +193,15 @@ const NotificationDelivery =
     'NotificationDelivery',
     NotificationDeliverySchema
   );
+
+/* Separate idempotency records for To-Do reminders; existing follow-up records remain untouched. */
+const TaskNotificationDeliverySchema = new mongoose.Schema({
+  task: { type: mongoose.Schema.Types.ObjectId, ref: 'Task', required: true },
+  salespersonKey: { type: String, required: true },
+  sentAt: { type: Date, default: Date.now }
+}, { timestamps: true });
+TaskNotificationDeliverySchema.index({ task: 1, salespersonKey: 1 }, { unique: true });
+const TaskNotificationDelivery = mongoose.models.TaskNotificationDelivery || mongoose.model('TaskNotificationDelivery', TaskNotificationDeliverySchema);
 
 /* ========================================================
    HELPER
@@ -922,6 +932,123 @@ const checkDueFollowUpReminders =
   };
 
 /* ========================================================
+   TO-DO TASKS + THEIR PUSH REMINDERS
+   ======================================================== */
+
+const checkDueTaskReminders = async () => {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
+  try {
+    const dueTasks = await Task.find({ status: 'Pending', dueAt: { $lte: new Date() } });
+    for (const task of dueTasks) {
+      try {
+        const salesperson = cleanName(task.salesperson);
+        if (!salesperson) continue;
+        // A linked task shares its follow-up reminder; don't send a duplicate push.
+        if (task.followUp) continue;
+        const spKey = salespersonKey(salesperson);
+        const subscriptions = await NotificationSubscription.find({ salespersonKey: spKey });
+        if (!subscriptions.length) continue;
+        try {
+          await TaskNotificationDelivery.create({ task: task._id, salespersonKey: spKey });
+        } catch (err) {
+          if (err?.code === 11000) continue;
+          throw err;
+        }
+        const dueTime = new Date(task.dueAt).toLocaleString('en-GB', { timeZone: 'Asia/Dubai', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+        const payload = JSON.stringify({
+          title: 'To-Do Reminder',
+          body: `${cleanName(task.title) || 'Task'} is due${task.priority ? ` (${task.priority})` : ''}. Due: ${dueTime}`,
+          salesperson,
+          taskId: String(task._id),
+          url: '/?tab=todo',
+          apiUrl: PUBLIC_API_URL
+        });
+        let successfulSends = 0;
+        for (const record of subscriptions) {
+          try {
+            await webpush.sendNotification(record.subscription, payload);
+            successfulSends++;
+          } catch (pushError) {
+            console.error('[To-Do Reminder] Push notification error:', pushError);
+            if (pushError?.statusCode === 404 || pushError?.statusCode === 410) {
+              await NotificationSubscription.deleteOne({ _id: record._id });
+            }
+          }
+        }
+        if (!successfulSends) await TaskNotificationDelivery.deleteOne({ task: task._id, salespersonKey: spKey });
+      } catch (taskError) {
+        console.error(`[To-Do Reminder] Processing error for task ${task._id}:`, taskError);
+      }
+    }
+  } catch (error) {
+    console.error('[To-Do Reminder] Reminder check error:', error);
+  }
+};
+
+router.get('/tasks', async (req, res) => {
+  try {
+    const tasks = await Task.find().populate('customer').populate('followUp').sort({ dueAt: 1, createdAt: -1 });
+    res.json(tasks);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/tasks', async (req, res) => {
+  try {
+    const data = { ...req.body };
+    data.title = cleanName(data.title);
+    data.salesperson = cleanName(data.salesperson);
+    if (!data.title) return res.status(400).json({ message: 'Task title is required.' });
+    if (!data.dueAt || Number.isNaN(new Date(data.dueAt).getTime())) return res.status(400).json({ message: 'A valid task due date and time are required.' });
+    if (data.customer) {
+      const customer = await Customer.findById(data.customer);
+      if (!customer) return res.status(404).json({ message: 'Customer not found.' });
+      if (!data.salesperson) data.salesperson = customer.assignedSalesperson || '';
+    }
+    if (data.followUp) {
+      const linkedFollowUp = await FollowUp.findById(data.followUp);
+      if (!linkedFollowUp) return res.status(404).json({ message: 'Linked follow-up not found.' });
+      if (!data.salesperson) data.salesperson = linkedFollowUp.salesperson || '';
+      if (!data.customer) data.customer = linkedFollowUp.customer;
+    }
+    if (data.salesperson) {
+      const sp = await findSalesperson(data.salesperson);
+      data.salesperson = sp ? sp.name : cleanName(data.salesperson);
+    }
+    const task = await Task.create(data);
+    res.status(201).json(await Task.findById(task._id).populate('customer').populate('followUp'));
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.patch('/tasks/:id', async (req, res) => {
+  try {
+    const data = { ...req.body };
+    if (Object.prototype.hasOwnProperty.call(data, 'title')) data.title = cleanName(data.title);
+    if (Object.prototype.hasOwnProperty.call(data, 'salesperson')) data.salesperson = cleanName(data.salesperson);
+    if (data.dueAt && Number.isNaN(new Date(data.dueAt).getTime())) return res.status(400).json({ message: 'Invalid task due date and time.' });
+    if (data.status === 'Completed') data.completedAt = new Date();
+    if (data.status === 'Pending') data.completedAt = null;
+    if (data.followUp) {
+      const linkedFollowUp = await FollowUp.findById(data.followUp);
+      if (!linkedFollowUp) return res.status(404).json({ message: 'Linked follow-up not found.' });
+      if (!Object.prototype.hasOwnProperty.call(data, 'customer')) data.customer = linkedFollowUp.customer;
+      if (!Object.prototype.hasOwnProperty.call(data, 'salesperson')) data.salesperson = linkedFollowUp.salesperson || '';
+    }
+    const task = await Task.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true }).populate('customer').populate('followUp');
+    if (!task) return res.status(404).json({ message: 'Task not found.' });
+    res.json(task);
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ message: error.message });
+  }
+});
+
+/* ========================================================
    MANUAL REMINDER CHECK
    ======================================================== */
 
@@ -930,12 +1057,13 @@ router.post(
   async (req, res) => {
     try {
       await checkDueFollowUpReminders();
+      await checkDueTaskReminders();
 
       res.json({
         success: true,
 
         message:
-          'Follow-up reminder check completed.'
+          'Follow-up and To-Do reminder check completed.'
       });
     } catch (error) {
       console.error(error);
@@ -1852,4 +1980,7 @@ module.exports =
  */
 module.exports
   .checkDueFollowUpReminders =
-  checkDueFollowUpReminders;
+  async () => {
+    await checkDueFollowUpReminders();
+    await checkDueTaskReminders();
+  };
