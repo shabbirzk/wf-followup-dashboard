@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const TaskSchema = new mongoose.Schema({
   title: { type: String, required: true, trim: true },
+  type: { type: String, enum: ['Task', 'Warehouse Follow-up'], default: 'Task', trim: true },
   description: { type: String, trim: true },
   salesperson: { type: String, trim: true, default: '' },
   customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null },
