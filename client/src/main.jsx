@@ -155,7 +155,7 @@ function App() {
   const [tasks, setTasks] = useState([]);
   const [taskSearch, setTaskSearch] = useState("");
   const [taskSalespersonFilter, setTaskSalespersonFilter] = useState("All");
-  const [taskStatusFilter, setTaskStatusFilter] = useState("All");
+  const [taskStatusFilter, setTaskStatusFilter] = useState("Pending");
   const [taskForm, setTaskForm] = useState({ title: "", type: "Task", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
   const [savingTask, setSavingTask] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
@@ -4363,6 +4363,7 @@ const conversionPercentage =
                       <thead>
                         <tr>
                           <th>Task</th>
+                          <th>Task Details</th>
                           <th>Task Type</th>
                           <th>Assigned Staff</th>
                           <th>Customer</th>
@@ -4381,9 +4382,9 @@ const conversionPercentage =
                             <tr key={task._id} className={overdue ? "overdue-row" : ""}>
                               <td>
                                 <strong style={{ textDecoration: task.status === "Completed" ? "line-through" : "none" }}>{task.title}</strong>
-                                {task.description && <div className="muted">{task.description}</div>}
                                 {overdue && <div style={{ marginTop: "4px" }}><Badge type="danger">Overdue</Badge></div>}
                               </td>
+                              <td style={{ whiteSpace: "pre-wrap", minWidth: "220px", maxWidth: "360px" }}>{task.description?.trim() || "-"}</td>
                               <td><Badge>{task.type || "Task"}</Badge></td>
                               <td>{task.salesperson || "Unassigned"}</td>
                               <td>{taskCustomer ? <><strong>{taskCustomer.name || "Linked customer"}</strong>{taskCustomer.customerCode && <div className="muted">{taskCustomer.customerCode}</div>}</> : "-"}</td>
@@ -4393,7 +4394,7 @@ const conversionPercentage =
                               <td>{task.followUp ? (task.followUp.type || "Follow-up") : "-"}</td>
                               <td>
                                 <div className="action-buttons">
-                                  <button type="button" className="btn btn-secondary" disabled={task.status === "Completed"} title={task.status === "Completed" ? "Completed tasks are read-only" : "Edit task"} onClick={() => task.status !== "Completed" && setEditingTask({ ...task, type: task.type || "Task", customer: task.customer?._id || "", dueAt: isoToDubaiLocal(task.dueAt) })}>{task.status === "Completed" ? "Read-only" : "Edit"}</button>
+                                  <button type="button" className="btn btn-secondary" disabled={task.status === "Completed"} title={task.status === "Completed" ? "Completed tasks are read-only" : "Edit task"} onClick={() => task.status !== "Completed" && setEditingTask({ ...task, type: task.type || "Task", customer: task.customer?._id || "", dueAt: isoToDubaiLocal(task.dueAt) })}>Edit</button>
                                   {task.status !== "Completed" && <button type="button" className="btn btn-success" onClick={async () => { try { await axios.patch(`${API}/tasks/${task._id}`, { status: "Completed" }); await loadData(); } catch (error) { alert(error.response?.data?.message || "Unable to complete task."); } }}>Complete</button>}
                                 </div>
                               </td>
