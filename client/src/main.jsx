@@ -4350,15 +4350,59 @@ const conversionPercentage =
                   const matchesStatus = taskStatusFilter === "All" || status === taskStatusFilter.toLowerCase();
                   return matchesSearch && matchesStaff && matchesStatus;
                 });
-                return filteredTasks.length === 0
+                const sortedTasks = [...filteredTasks].sort((a, b) => {
+                  const aOverdue = String(a.status || "Pending") === "Pending" && isOverdue(a.dueAt);
+                  const bOverdue = String(b.status || "Pending") === "Pending" && isOverdue(b.dueAt);
+                  if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+                  return new Date(a.dueAt || 0) - new Date(b.dueAt || 0);
+                });
+                return sortedTasks.length === 0
                   ? <p>{tasks.length === 0 ? "No tasks yet." : "No tasks match your search and filters."}</p>
-                  : filteredTasks.map(task => <div key={task._id} style={{ padding: "12px 0", borderBottom: "1px solid #e5e7eb", display: "flex", gap: "12px", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
-                <div><strong style={{ textDecoration: task.status === "Completed" ? "line-through" : "none" }}>{task.title}</strong><div><small>Type: {task.type || "Task"}</small></div><div>{task.description || ""}</div><small>{fmt(task.dueAt)} · {task.salesperson || "Unassigned"} · {task.priority} · {task.status}</small>{task.customer && <div><small>Customer: {task.customer.name || "Linked customer"}</small></div>}{task.followUp && <div><small>Linked follow-up: {task.followUp.type || "Follow-up"}</small></div>}</div>
-                <div className="action-buttons">
-                  <button type="button" className="btn btn-secondary" onClick={() => setEditingTask({ ...task, type: task.type || "Task", customer: task.customer?._id || "", dueAt: isoToDubaiLocal(task.dueAt) })}>Edit</button>
-                  {task.status !== "Completed" && <button type="button" className="btn btn-success" onClick={async () => { try { await axios.patch(`${API}/tasks/${task._id}`, { status: "Completed" }); await loadData(); } catch (error) { alert(error.response?.data?.message || "Unable to complete task."); } }}>Complete</button>}
-                </div>
-              </div>);
+                  : <div className="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Task</th>
+                          <th>Task Type</th>
+                          <th>Assigned Staff</th>
+                          <th>Customer</th>
+                          <th>Due Date &amp; Time</th>
+                          <th>Priority</th>
+                          <th>Status</th>
+                          <th>Linked Follow-up</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedTasks.map(task => {
+                          const overdue = String(task.status || "Pending") === "Pending" && isOverdue(task.dueAt);
+                          const taskCustomer = task.customer && typeof task.customer === "object" ? task.customer : null;
+                          return (
+                            <tr key={task._id} className={overdue ? "overdue-row" : ""}>
+                              <td>
+                                <strong style={{ textDecoration: task.status === "Completed" ? "line-through" : "none" }}>{task.title}</strong>
+                                {task.description && <div className="muted">{task.description}</div>}
+                                {overdue && <div style={{ marginTop: "4px" }}><Badge type="danger">Overdue</Badge></div>}
+                              </td>
+                              <td><Badge>{task.type || "Task"}</Badge></td>
+                              <td>{task.salesperson || "Unassigned"}</td>
+                              <td>{taskCustomer ? <><strong>{taskCustomer.name || "Linked customer"}</strong>{taskCustomer.customerCode && <div className="muted">{taskCustomer.customerCode}</div>}</> : "-"}</td>
+                              <td>{fmt(task.dueAt)}{overdue && <div><Badge type="danger">Overdue</Badge></div>}</td>
+                              <td><Badge>{task.priority || "Medium"}</Badge></td>
+                              <td><Badge type={task.status === "Completed" ? "success" : overdue ? "danger" : ""}>{task.status || "Pending"}</Badge></td>
+                              <td>{task.followUp ? (task.followUp.type || "Follow-up") : "-"}</td>
+                              <td>
+                                <div className="action-buttons">
+                                  <button type="button" className="btn btn-secondary" disabled={task.status === "Completed"} title={task.status === "Completed" ? "Completed tasks are read-only" : "Edit task"} onClick={() => task.status !== "Completed" && setEditingTask({ ...task, type: task.type || "Task", customer: task.customer?._id || "", dueAt: isoToDubaiLocal(task.dueAt) })}>{task.status === "Completed" ? "Read-only" : "Edit"}</button>
+                                  {task.status !== "Completed" && <button type="button" className="btn btn-success" onClick={async () => { try { await axios.patch(`${API}/tasks/${task._id}`, { status: "Completed" }); await loadData(); } catch (error) { alert(error.response?.data?.message || "Unable to complete task."); } }}>Complete</button>}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>;
               })()}
             </div>
           </section>
@@ -4375,6 +4419,7 @@ const conversionPercentage =
             </div>
             <form onSubmit={async (event) => {
               event.preventDefault();
+              if (editingTask.status === "Completed") { alert("Completed tasks are read-only and cannot be edited."); return; }
               if (!editingTask.title?.trim() || !editingTask.dueAt) { alert("Task title and due date/time are required."); return; }
               setSavingTaskEdit(true);
               try {
@@ -4399,7 +4444,7 @@ const conversionPercentage =
               <div className="form-group"><label>Customer (optional)</label><select value={editingTask.customer || ""} onChange={e => setEditingTask(p => ({ ...p, customer: e.target.value }))}><option value="">No customer linked</option>{customers.map(c => <option key={c._id} value={c._id}>{c.customerCode} - {c.name}</option>)}</select></div>
               <div className="form-group"><label>Due Date &amp; Time</label><input type="datetime-local" value={editingTask.dueAt || ""} onChange={e => setEditingTask(p => ({ ...p, dueAt: e.target.value }))} required /></div>
               <div className="form-group"><label>Priority</label><select value={editingTask.priority || "Medium"} onChange={e => setEditingTask(p => ({ ...p, priority: e.target.value }))}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select></div>
-              <div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={() => setEditingTask(null)} disabled={savingTaskEdit}>Cancel</button><button type="submit" className="btn btn-primary" disabled={savingTaskEdit}>{savingTaskEdit ? "Saving..." : "Save Changes"}</button></div>
+              <div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={() => setEditingTask(null)} disabled={savingTaskEdit}>Cancel</button><button type="submit" className="btn btn-primary" disabled={savingTaskEdit || editingTask.status === "Completed"}>{savingTaskEdit ? "Saving..." : "Save Changes"}</button></div>
             </form>
           </div>
         </div>
