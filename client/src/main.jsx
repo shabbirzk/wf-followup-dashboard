@@ -172,6 +172,10 @@ function App() {
   const [taskSalespersonFilter, setTaskSalespersonFilter] = useState("All");
   const [taskStatusFilter, setTaskStatusFilter] = useState("Pending");
   const [taskForm, setTaskForm] = useState({ title: "", type: "Task", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
+  const [taskCustomerSearch, setTaskCustomerSearch] = useState("");
+  const [showTaskCustomerResults, setShowTaskCustomerResults] = useState(false);
+  const [taskEditCustomerSearch, setTaskEditCustomerSearch] = useState("");
+  const [showTaskEditCustomerResults, setShowTaskEditCustomerResults] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [savingTaskEdit, setSavingTaskEdit] = useState(false);
@@ -1320,6 +1324,38 @@ const conversionPercentage =
       customers,
       followUpCustomerSearch
     ]);
+
+  /* =====================================================
+     TO-DO CUSTOMER SEARCH FILTERS
+  ===================================================== */
+
+  const filteredTaskCustomers = useMemo(() => {
+    const search = taskCustomerSearch.trim().toLowerCase();
+    if (!search) return [];
+    return customers.filter((customer) => [
+      customer.customerCode,
+      customer.name,
+      customer.phone,
+      customer.whatsapp,
+      customer.email,
+      customer.location,
+      customer.assignedSalesperson
+    ].filter(Boolean).join(" ").toLowerCase().includes(search));
+  }, [customers, taskCustomerSearch]);
+
+  const filteredTaskEditCustomers = useMemo(() => {
+    const search = taskEditCustomerSearch.trim().toLowerCase();
+    if (!search) return [];
+    return customers.filter((customer) => [
+      customer.customerCode,
+      customer.name,
+      customer.phone,
+      customer.whatsapp,
+      customer.email,
+      customer.location,
+      customer.assignedSalesperson
+    ].filter(Boolean).join(" ").toLowerCase().includes(search));
+  }, [customers, taskEditCustomerSearch]);
 
   /* =====================================================
      FOLLOW-UP FILTER
@@ -4326,6 +4362,8 @@ const conversionPercentage =
                 try {
                   await axios.post(`${API}/tasks`, { ...taskForm, dueAt: dubaiLocalToISO(taskForm.dueAt), customer: taskForm.customer || null });
                   setTaskForm({ title: "", type: "Task", description: "", salesperson: "", customer: "", dueAt: "", priority: "Medium" });
+                  setTaskCustomerSearch("");
+                  setShowTaskCustomerResults(false);
                   await loadData();
                 } catch (error) { alert(error.response?.data?.message || "Unable to save task."); }
                 finally { setSavingTask(false); }
@@ -4339,7 +4377,40 @@ const conversionPercentage =
                 </label>
                 <input className="form-control" placeholder="Description (optional)" value={taskForm.description} onChange={e => setTaskForm(p => ({ ...p, description: e.target.value }))} />
                 <select className="form-control" value={taskForm.salesperson} onChange={e => setTaskForm(p => ({ ...p, salesperson: e.target.value }))}><option value="">Select salesperson</option>{salespersons.map(sp => <option key={sp._id} value={sp.name}>{sp.name}</option>)}</select>
-                <select className="form-control" value={taskForm.customer} onChange={e => setTaskForm(p => ({ ...p, customer: e.target.value }))}><option value="">No customer linked</option>{customers.map(c => <option key={c._id} value={c._id}>{c.customerCode} - {c.name}</option>)}</select>
+                <div className="form-group" style={{ position: "relative", display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label>Customer (optional)</label>
+                  <input
+                    className="form-control"
+                    type="text"
+                    value={taskCustomerSearch}
+                    placeholder="Search customer by code, name, phone..."
+                    onChange={e => {
+                      const value = e.target.value;
+                      setTaskCustomerSearch(value);
+                      setTaskForm(p => ({ ...p, customer: "" }));
+                      setShowTaskCustomerResults(Boolean(value.trim()));
+                    }}
+                    onFocus={() => { if (taskCustomerSearch.trim()) setShowTaskCustomerResults(true); }}
+                    onBlur={() => setTimeout(() => setShowTaskCustomerResults(false), 150)}
+                    aria-label="Search customer for task"
+                  />
+                  {taskForm.customer && <small className="muted">Selected: {customers.find(c => String(c._id) === String(taskForm.customer))?.customerCode || ""}</small>}
+                  {showTaskCustomerResults && taskCustomerSearch.trim() && (
+                    <div className="customer-search-results" onMouseDown={e => e.preventDefault()}>
+                      {filteredTaskCustomers.length === 0 ? <div className="customer-search-empty">No customers found</div> : filteredTaskCustomers.map(customer => (
+                        <div key={customer._id} className="customer-search-item" onClick={() => {
+                          setTaskForm(p => ({ ...p, customer: customer._id, salesperson: p.salesperson || customer.assignedSalesperson || "" }));
+                          setTaskCustomerSearch(`${customer.customerCode || ""} - ${customer.name || ""}`.trim());
+                          setShowTaskCustomerResults(false);
+                        }}>
+                          <strong>{customer.customerCode || ""} - {customer.name || ""}</strong>
+                          {(customer.phone || customer.location) && <div className="muted">{[customer.phone, customer.location].filter(Boolean).join(" · ")}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {taskForm.customer && <button type="button" className="btn btn-secondary" style={{ alignSelf: "flex-start" }} onClick={() => { setTaskForm(p => ({ ...p, customer: "" })); setTaskCustomerSearch(""); }}>Clear customer</button>}
+                </div>
                 <input className="form-control" type="datetime-local" value={taskForm.dueAt} onChange={e => setTaskForm(p => ({ ...p, dueAt: e.target.value }))} required />
                 <select className="form-control" value={taskForm.priority} onChange={e => setTaskForm(p => ({ ...p, priority: e.target.value }))}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select>
                 <button className="btn btn-primary" type="submit" disabled={savingTask}>{savingTask ? "Saving..." : "Add Task"}</button>
@@ -4414,7 +4485,13 @@ const conversionPercentage =
                               <td>{task.followUp ? (task.followUp.type || "Follow-up") : "-"}</td>
                               <td>
                                 <div className="action-buttons">
-                                  <button type="button" className="btn btn-secondary" disabled={task.status === "Completed"} title={task.status === "Completed" ? "Completed tasks are read-only" : "Edit task"} onClick={() => task.status !== "Completed" && setEditingTask({ ...task, type: task.type || "Task", customer: task.customer?._id || "", dueAt: isoToDubaiLocal(task.dueAt) })}>Edit</button>
+                                  <button type="button" className="btn btn-secondary" disabled={task.status === "Completed"} title={task.status === "Completed" ? "Completed tasks are read-only" : "Edit task"} onClick={() => {
+                                    if (task.status === "Completed") return;
+                                    const linkedCustomer = task.customer && typeof task.customer === "object" ? task.customer : customers.find(c => String(c._id) === String(task.customer));
+                                    setEditingTask({ ...task, type: task.type || "Task", customer: linkedCustomer?._id || task.customer || "", dueAt: isoToDubaiLocal(task.dueAt) });
+                                    setTaskEditCustomerSearch(linkedCustomer ? `${linkedCustomer.customerCode || ""} - ${linkedCustomer.name || ""}`.trim() : "");
+                                    setShowTaskEditCustomerResults(false);
+                                  }}>Edit</button>
                                   {task.status !== "Completed" && <button type="button" className="btn btn-success" onClick={async () => { try { await axios.patch(`${API}/tasks/${task._id}`, { status: "Completed" }); await loadData(); } catch (error) { alert(error.response?.data?.message || "Unable to complete task."); } }}>Complete</button>}
                                 </div>
                               </td>
@@ -4436,7 +4513,7 @@ const conversionPercentage =
           <div className="modal-card">
             <div className="card-header">
               <h3>Edit To-Do Task</h3>
-              <button type="button" className="btn btn-secondary" onClick={() => setEditingTask(null)} disabled={savingTaskEdit}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => { setEditingTask(null); setTaskEditCustomerSearch(""); setShowTaskEditCustomerResults(false); }} disabled={savingTaskEdit}>Close</button>
             </div>
             <form onSubmit={async (event) => {
               event.preventDefault();
@@ -4454,6 +4531,8 @@ const conversionPercentage =
                   priority: editingTask.priority || "Medium"
                 });
                 setEditingTask(null);
+                setTaskEditCustomerSearch("");
+                setShowTaskEditCustomerResults(false);
                 await loadData();
               } catch (error) { alert(error.response?.data?.message || "Unable to save task changes."); }
               finally { setSavingTaskEdit(false); }
@@ -4466,10 +4545,41 @@ const conversionPercentage =
               </select></div>
               <div className="form-group"><label>Description</label><input value={editingTask.description || ""} onChange={e => setEditingTask(p => ({ ...p, description: e.target.value }))} /></div>
               <div className="form-group"><label>Salesperson</label><select value={editingTask.salesperson || ""} onChange={e => setEditingTask(p => ({ ...p, salesperson: e.target.value }))}><option value="">Select salesperson</option>{salespersons.map(sp => <option key={sp._id} value={sp.name}>{sp.name}</option>)}</select></div>
-              <div className="form-group"><label>Customer (optional)</label><select value={editingTask.customer || ""} onChange={e => setEditingTask(p => ({ ...p, customer: e.target.value }))}><option value="">No customer linked</option>{customers.map(c => <option key={c._id} value={c._id}>{c.customerCode} - {c.name}</option>)}</select></div>
+              <div className="form-group" style={{ position: "relative" }}>
+                <label>Customer (optional)</label>
+                <input
+                  type="text"
+                  value={taskEditCustomerSearch}
+                  placeholder="Search customer by code, name, phone..."
+                  onChange={e => {
+                    const value = e.target.value;
+                    setTaskEditCustomerSearch(value);
+                    setEditingTask(p => ({ ...p, customer: "" }));
+                    setShowTaskEditCustomerResults(Boolean(value.trim()));
+                  }}
+                  onFocus={() => { if (taskEditCustomerSearch.trim()) setShowTaskEditCustomerResults(true); }}
+                  onBlur={() => setTimeout(() => setShowTaskEditCustomerResults(false), 150)}
+                  aria-label="Search customer for task edit"
+                />
+                {showTaskEditCustomerResults && taskEditCustomerSearch.trim() && (
+                  <div className="customer-search-results" onMouseDown={e => e.preventDefault()}>
+                    {filteredTaskEditCustomers.length === 0 ? <div className="customer-search-empty">No customers found</div> : filteredTaskEditCustomers.map(customer => (
+                      <div key={customer._id} className="customer-search-item" onClick={() => {
+                        setEditingTask(p => ({ ...p, customer: customer._id, salesperson: p.salesperson || customer.assignedSalesperson || "" }));
+                        setTaskEditCustomerSearch(`${customer.customerCode || ""} - ${customer.name || ""}`.trim());
+                        setShowTaskEditCustomerResults(false);
+                      }}>
+                        <strong>{customer.customerCode || ""} - {customer.name || ""}</strong>
+                        {(customer.phone || customer.location) && <div className="muted">{[customer.phone, customer.location].filter(Boolean).join(" · ")}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {editingTask.customer && <button type="button" className="btn btn-secondary" style={{ marginTop: "6px" }} onClick={() => { setEditingTask(p => ({ ...p, customer: "" })); setTaskEditCustomerSearch(""); }}>Clear customer</button>}
+              </div>
               <div className="form-group"><label>Due Date &amp; Time</label><input type="datetime-local" value={editingTask.dueAt || ""} onChange={e => setEditingTask(p => ({ ...p, dueAt: e.target.value }))} required /></div>
               <div className="form-group"><label>Priority</label><select value={editingTask.priority || "Medium"} onChange={e => setEditingTask(p => ({ ...p, priority: e.target.value }))}><option>Low</option><option>Medium</option><option>High</option><option>Urgent</option></select></div>
-              <div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={() => setEditingTask(null)} disabled={savingTaskEdit}>Cancel</button><button type="submit" className="btn btn-primary" disabled={savingTaskEdit || editingTask.status === "Completed"}>{savingTaskEdit ? "Saving..." : "Save Changes"}</button></div>
+              <div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={() => { setEditingTask(null); setTaskEditCustomerSearch(""); setShowTaskEditCustomerResults(false); }} disabled={savingTaskEdit}>Cancel</button><button type="submit" className="btn btn-primary" disabled={savingTaskEdit || editingTask.status === "Completed"}>{savingTaskEdit ? "Saving..." : "Save Changes"}</button></div>
             </form>
           </div>
         </div>
