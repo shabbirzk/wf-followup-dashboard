@@ -1,160 +1,95 @@
-const salesperson =
-            followUp.salesperson ||
-            "";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import axios from "axios";
+import "./style.css";
 
-          const matchesSearch =
-            !search ||
-            [
-              customerName,
-              customerCode,
-              salesperson,
-              followUp.type,
-              followUp.priority,
-              followUp.status,
-              followUp.summary,
-              followUp.nextAction
-            ]
-              .join(" ")
-              .toLowerCase()
-              .includes(search);
+const API =
+  import.meta.env.VITE_API_URL ||
+  "https://wf-followup-api1.onrender.com/api";
 
-          const masterCustomer =
-            customers.find((customer) =>
-              (followUp.customer?._id &&
-                customer._id === followUp.customer._id) ||
-              (followUp.customer?.customerCode &&
-                customer.customerCode === followUp.customer.customerCode) ||
-              (!followUp.customer?._id &&
-                !followUp.customer?.customerCode &&
-                followUp.customer?.name &&
-                normalizeName(customer.name) === normalizeName(followUp.customer.name))
-            );
+const TODO_TASK_TITLE_OPTIONS = [
+  "Email checking/Reply/Response",
+  "Quotation to be prepare",
+  "Delivery Schedule for sales order",
+  "B2B Order Followup",
+  "Requisition/showroom set up Schedule",
+  "Layout/Presentation to be prepare",
+  "Follow-up call/WhatsApp/email to client",
+  "Sales Inquiry to be check",
+  "Follow-up for Transit Orders/Stock arrival",
+  "Follow-up for Natuzzi Recap",
+  "Price Tag prepration",
+  "Damage Form/Survey prepration"
+];
 
-          const customerStatus =
-            String(
-              masterCustomer?.status ||
-              followUp.customer?.status ||
-              followUp.customerStatus ||
-              ""
-            ).trim();
+/* =========================================================
+   DUBAI TIMEZONE HELPERS
+========================================================= */
 
-          const customerStatuses = [
-            "New",
-            "Contacted",
-            "Quoted",
-            "Negotiation",
-            "Converted",
-            "Lost",
-            "Active"
-          ];
+const DUBAI_TIMEZONE = "Asia/Dubai";
 
-          const matchesStatus =
-            followUpStatusFilter === "All" ||
-            (customerStatuses.includes(followUpStatusFilter)
-              ? customerStatus === followUpStatusFilter
-              : followUp.status === followUpStatusFilter);
+const fmt = (value) => {
+  if (!value) return "";
 
-          const matchesSalesperson =
-            followUpSalespersonFilter ===
-              "All" ||
-            normalizeName(
-              followUp.salesperson
-            ) ===
-              normalizeName(
-                followUpSalespersonFilter
-              );
+  return new Date(value).toLocaleString("en-GB", {
+    timeZone: DUBAI_TIMEZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+  });
+};
 
-          return (
-            matchesSearch &&
-            matchesStatus &&
-            matchesSalesperson
-          );
-        }
-      );
-    }, [
-      followUps,
-      followUpSearch,
-      followUpStatusFilter,
-      followUpSalespersonFilter,
-      customers
-    ]);
+const getDubaiDate = (value = new Date()) => {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DUBAI_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(value));
+};
 
-  /* =====================================================
-     CUSTOMER FORM HANDLERS
-  ===================================================== */
+const getDubaiToday = () => {
+  return getDubaiDate(new Date());
+};
 
-  const handleCustomerChange = (e) => {
-    const {
-      name,
-      value
-    } = e.target;
+const dubaiLocalToISO = (localValue) => {
+  if (!localValue) return "";
 
-    setCustomerForm((prev) => ({
-      ...prev,
-      [name]: value
-    }));
-  };
+  const [datePart, timePart] = localValue.split("T");
 
-  const saveCustomer = async (e) => {
-    e.preventDefault();
+  if (!datePart || !timePart) return "";
 
-    if (
-      !customerForm.name.trim()
-    ) {
-      alert(
-        "Customer name is required."
-      );
-      return;
-    }
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
 
-    try {
-      setSavingCustomer(true);
+  // Dubai = UTC+4
+  const utcMillis = Date.UTC(
+    year,
+    month - 1,
+    day,
+    hour - 4,
+    minute
+  );
 
-      const payload = {
-        ...customerForm,
+  return new Date(utcMillis).toISOString();
+};
 
-        quotationAmount:
-          Number(
-            customerForm.quotationAmount ||
-              0
-          )
-      };
+const isoToDubaiLocal = (value) => {
+  if (!value) return "";
 
-      const response =
-        await axios.post(
-          `${API}/customers`,
-          payload
-        );
+  const date = new Date(value);
 
-      setCustomers((prev) => [
-        response.data,
-        ...prev
-      ]);
+  if (Number.isNaN(date.getTime())) return "";
 
-      setCustomerForm({
-        name: "",
-        phone: "",
-        whatsapp: "",
-        email: "",
-        location: "",
-        source: "Walk-in",
-        assignedSalesperson: "",
-        status: "New",
-        productInterest: "",
-        quotationAmount: "",
-        customerVisitDate: ""
-      });
-
-      await loadData();
-
-      alert(
-        "Customer saved successfully."
-      );
-    } catch (error) {
-      console.error(error);
-
-      alert(
-        error.response?.data
-          ?.message ||
-          "Failed to save customer."
-      );
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: DUBAI_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
